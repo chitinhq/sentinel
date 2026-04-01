@@ -1,0 +1,17 @@
+# Go binary
+sentinel
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Generated digests (tracked separately)
+digests/*.md
+!digests/.gitkeep

@@ -1,0 +1,40 @@
+analysis:
+  lookback: 24h
+  trend_window: 168h  # 7 days
+
+detection:
+  false_positive:
+    min_sample_size: 20
+    deviation_threshold: 2.0
+    absolute_rate_threshold: 0.3
+  bypass:
+    window: 5m
+    min_retries: 2
+  anomaly:
+    volume_spike_threshold: 3.0
+
+scoring:
+  weights:
+    signal_strength: 0.35
+    impact: 0.25
+    actionability: 0.25
+    novelty: 0.15
+
+routing:
+  high_confidence: 0.8
+  medium_confidence: 0.5
+  dedup_similarity: 0.85
+  dedup_lookback: 168h  # 7 days
+
+interpreter:
+  model: claude-sonnet-4-6
+  max_findings_per_batch: 20
+
+digest:
+  slack_enabled: false
+
+github:
+  repo: AgentGuardHQ/agent-guard
+  labels:
+    - sentinel
+    - "stage:architect"

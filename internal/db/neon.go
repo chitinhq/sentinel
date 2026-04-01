@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // EventStore defines the queries Sentinel needs from the telemetry database.
 type EventStore interface {
-	QueryEvents(ctx context.Context, since, until time.Time) ([]analyzer.Event, error)
+	QueryEvents(ctx context.Context, since, until time.Time) ([]Event, error)
 	QueryActionCounts(ctx context.Context, since time.Time) ([]ActionCount, error)
 	QueryDenialRates(ctx context.Context, since time.Time) ([]DenialRate, error)
 	QuerySessionDenials(ctx context.Context, since time.Time) ([]SessionDenialCount, error)
@@ -66,7 +64,7 @@ func (c *NeonClient) Close() {
 	c.pool.Close()
 }
 
-func (c *NeonClient) QueryEvents(ctx context.Context, since, until time.Time) ([]analyzer.Event, error) {
+func (c *NeonClient) QueryEvents(ctx context.Context, since, until time.Time) ([]Event, error) {
 	rows, err := c.pool.Query(ctx, `
 		SELECT id::text, timestamp, agent_id, session_id, event_type,
 		       action, COALESCE(resource, ''), COALESCE(outcome, ''),
@@ -81,9 +79,9 @@ func (c *NeonClient) QueryEvents(ctx context.Context, since, until time.Time) ([
 	}
 	defer rows.Close()
 
-	var events []analyzer.Event
+	var events []Event
 	for rows.Next() {
-		var e analyzer.Event
+		var e Event
 		var metaJSON string
 		err := rows.Scan(&e.ID, &e.Timestamp, &e.AgentID, &e.SessionID,
 			&e.EventType, &e.Action, &e.Resource, &e.Outcome,

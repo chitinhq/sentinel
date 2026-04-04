@@ -38,3 +38,31 @@ github:
   labels:
     - sentinel
     - "stage:architect"
+
+ingestion:
+  enabled: true
+  github_actions:
+    repos:
+      - AgentGuardHQ/agent-guard
+      - AgentGuardHQ/octi-pulpo
+      - AgentGuardHQ/sentinel
+      - AgentGuardHQ/cata
+      - AgentGuardHQ/shellforge
+    since: 168h
+    poll_interval: 1h
+    actor_patterns:
+      - pattern: "github-actions\\[bot\\]"
+        agent_id: "github-actions"
+      - pattern: "copilot"
+        agent_id: "copilot"
+      - pattern: "octi-pulpo"
+        agent_id: "octi-pulpo"
+
+execution_passes:
+  command_failure:
+    min_occurrences: 10
+    failure_rate_threshold: 0.5
+  sequence_detection:
+    ngram_range: [2, 5]
+    min_frequency: 3
+    failure_rate_threshold: 0.6

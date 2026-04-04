@@ -20,6 +20,8 @@ type Store interface {
 	QueryDenialRates(ctx context.Context, since time.Time) ([]db.DenialRate, error)
 	QuerySessionDenials(ctx context.Context, since time.Time) ([]db.SessionDenialCount, error)
 	QueryHourlyVolumes(ctx context.Context, since time.Time) ([]db.HourlyVolume, error)
+	QueryCommandFailureRates(ctx context.Context, since time.Time) ([]db.CommandFailureRate, error)
+	QuerySessionSequences(ctx context.Context, since time.Time) ([]db.SessionSequence, error)
 	Close()
 }
 
@@ -91,6 +93,28 @@ func (a *Analyzer) Run(ctx context.Context) ([]Finding, error) {
 	anomalies := DetectAnomalies(volumes, sessionDenials, a.cfg.Detection.Anomaly)
 	log.Printf("sentinel: pass 5 (anomaly) found %d findings", len(anomalies))
 	all = append(all, anomalies...)
+
+	// Pass 6: Command Failure (execution events) — only if ingestion enabled
+	if a.cfg.Ingestion.Enabled {
+		cmdRates, err := a.store.QueryCommandFailureRates(ctx, since)
+		if err != nil {
+			log.Printf("sentinel: pass 6 (command failure): %v", err)
+		} else {
+			cmdFailures := DetectCommandFailures(cmdRates, a.cfg.ExecutionPasses.CommandFailure)
+			log.Printf("sentinel: pass 6 (command failure) found %d findings", len(cmdFailures))
+			all = append(all, cmdFailures...)
+		}
+
+		// Pass 7: Sequence Detection (execution events)
+		sequences, err := a.store.QuerySessionSequences(ctx, since)
+		if err != nil {
+			log.Printf("sentinel: pass 7 (sequence): %v", err)
+		} else {
+			seqFailures := DetectFailureSequences(sequences, a.cfg.ExecutionPasses.SequenceDetection)
+			log.Printf("sentinel: pass 7 (sequence) found %d findings", len(seqFailures))
+			all = append(all, seqFailures...)
+		}
+	}
 
 	log.Printf("sentinel: total findings: %d", len(all))
 	return all, nil

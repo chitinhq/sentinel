@@ -198,6 +198,16 @@ func (a *StoreAdapter) QueryHourlyVolumes(ctx context.Context, since time.Time) 
 	return a.inner.QueryHourlyVolumes(ctx, since)
 }
 
+// QueryCommandFailureRates delegates directly to the inner store.
+func (a *StoreAdapter) QueryCommandFailureRates(ctx context.Context, since time.Time) ([]db.CommandFailureRate, error) {
+	return a.inner.QueryCommandFailureRates(ctx, since)
+}
+
+// QuerySessionSequences delegates directly to the inner store.
+func (a *StoreAdapter) QuerySessionSequences(ctx context.Context, since time.Time) ([]db.SessionSequence, error) {
+	return a.inner.QuerySessionSequences(ctx, since)
+}
+
 // Close delegates to the inner store.
 func (a *StoreAdapter) Close() {
 	a.inner.Close()

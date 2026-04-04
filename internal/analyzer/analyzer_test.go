@@ -33,6 +33,12 @@ func (m *mockStore) QuerySessionDenials(_ context.Context, _ time.Time) ([]db.Se
 func (m *mockStore) QueryHourlyVolumes(_ context.Context, _ time.Time) ([]db.HourlyVolume, error) {
 	return m.hourlyVolumes, nil
 }
+func (m *mockStore) QueryCommandFailureRates(_ context.Context, _ time.Time) ([]db.CommandFailureRate, error) {
+	return nil, nil
+}
+func (m *mockStore) QuerySessionSequences(_ context.Context, _ time.Time) ([]db.SessionSequence, error) {
+	return nil, nil
+}
 func (m *mockStore) Close() {}
 
 func TestAnalyzer_RunAllPasses(t *testing.T) {

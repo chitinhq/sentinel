@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/AgentGuardHQ/sentinel/internal/ingestion"
 )
 
 // EventStore defines the queries Sentinel needs from the telemetry database.
@@ -16,6 +18,8 @@ type EventStore interface {
 	QueryDenialRates(ctx context.Context, since time.Time) ([]DenialRate, error)
 	QuerySessionDenials(ctx context.Context, since time.Time) ([]SessionDenialCount, error)
 	QueryHourlyVolumes(ctx context.Context, since time.Time) ([]HourlyVolume, error)
+	QueryCommandFailureRates(ctx context.Context, since time.Time) ([]CommandFailureRate, error)
+	QuerySessionSequences(ctx context.Context, since time.Time) ([]SessionSequence, error)
 	Close()
 }
 
@@ -200,4 +204,177 @@ func (c *NeonClient) QueryHourlyVolumes(ctx context.Context, since time.Time) ([
 		vols = append(vols, hv)
 	}
 	return vols, rows.Err()
+}
+
+// InsertExecutionEvents batch-inserts execution events using a transaction.
+// Conflicts on the primary key are silently ignored (ON CONFLICT DO NOTHING).
+// Returns the number of rows actually inserted.
+func (c *NeonClient) InsertExecutionEvents(ctx context.Context, events []ingestion.ExecutionEvent) (int, error) {
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	inserted := 0
+	for _, e := range events {
+		argsJSON, err := json.Marshal(e.Arguments)
+		if err != nil {
+			return inserted, fmt.Errorf("marshal arguments: %w", err)
+		}
+		tagsJSON, err := json.Marshal(e.Tags)
+		if err != nil {
+			return inserted, fmt.Errorf("marshal tags: %w", err)
+		}
+
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO execution_events (
+				id, timestamp, source, session_id, sequence_num,
+				actor, agent_id, command, arguments,
+				exit_code, duration_ms, working_dir,
+				repository, branch, stdout_hash, stderr_hash,
+				has_error, tags
+			) VALUES (
+				$1, $2, $3, $4, $5,
+				$6, $7, $8, $9,
+				$10, $11, $12,
+				$13, $14, $15, $16,
+				$17, $18
+			) ON CONFLICT (id) DO NOTHING
+		`,
+			e.ID, e.Timestamp, string(e.Source), e.SessionID, e.SequenceNum,
+			string(e.Actor), e.AgentID, e.Command, argsJSON,
+			e.ExitCode, e.DurationMs, e.WorkingDir,
+			e.Repository, e.Branch, e.StdoutHash, e.StderrHash,
+			e.HasError, tagsJSON,
+		)
+		if err != nil {
+			return inserted, fmt.Errorf("insert execution event %s: %w", e.ID, err)
+		}
+		inserted += int(tag.RowsAffected())
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit transaction: %w", err)
+	}
+	return inserted, nil
+}
+
+// GetCheckpoint retrieves the ingestion checkpoint for the given adapter.
+// Returns nil (no error) when no checkpoint exists yet.
+func (c *NeonClient) GetCheckpoint(ctx context.Context, adapter string) (*ingestion.Checkpoint, error) {
+	row := c.pool.QueryRow(ctx, `
+		SELECT adapter, COALESCE(last_run_id, ''), COALESCE(last_run_at, '1970-01-01'::timestamptz)
+		FROM ingestion_checkpoints
+		WHERE adapter = $1
+	`, adapter)
+
+	var cp ingestion.Checkpoint
+	err := row.Scan(&cp.Adapter, &cp.LastRunID, &cp.LastRunAt)
+	if err != nil {
+		// pgx returns pgx.ErrNoRows when nothing found; treat as nil checkpoint.
+		return nil, nil //nolint:nilerr
+	}
+	return &cp, nil
+}
+
+// UpsertCheckpoint inserts or updates the checkpoint for the given adapter.
+func (c *NeonClient) UpsertCheckpoint(ctx context.Context, cp ingestion.Checkpoint) error {
+	_, err := c.pool.Exec(ctx, `
+		INSERT INTO ingestion_checkpoints (adapter, last_run_id, last_run_at, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (adapter) DO UPDATE
+		  SET last_run_id = EXCLUDED.last_run_id,
+		      last_run_at = EXCLUDED.last_run_at,
+		      updated_at  = NOW()
+	`, cp.Adapter, cp.LastRunID, cp.LastRunAt)
+	if err != nil {
+		return fmt.Errorf("upsert checkpoint: %w", err)
+	}
+	return nil
+}
+
+// QueryCommandFailureRates returns failure rates per command from execution_events
+// since the given time, grouped by command.
+func (c *NeonClient) QueryCommandFailureRates(ctx context.Context, since time.Time) ([]CommandFailureRate, error) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT
+			command,
+			COUNT(*)::int AS total,
+			COUNT(*) FILTER (WHERE has_error OR exit_code != 0)::int AS failures,
+			CASE WHEN COUNT(*) > 0
+			     THEN COUNT(*) FILTER (WHERE has_error OR exit_code != 0)::float / COUNT(*)
+			     ELSE 0 END AS failure_rate,
+			ARRAY_AGG(DISTINCT repository) FILTER (WHERE repository IS NOT NULL) AS repos,
+			ARRAY_AGG(DISTINCT actor) FILTER (WHERE actor IS NOT NULL)           AS actors
+		FROM execution_events
+		WHERE timestamp >= $1
+		GROUP BY command
+		HAVING COUNT(*) > 0
+		ORDER BY failure_rate DESC, total DESC
+	`, since)
+	if err != nil {
+		return nil, fmt.Errorf("query command failure rates: %w", err)
+	}
+	defer rows.Close()
+
+	var rates []CommandFailureRate
+	for rows.Next() {
+		var cfr CommandFailureRate
+		if err := rows.Scan(
+			&cfr.Command,
+			&cfr.TotalCount,
+			&cfr.FailureCount,
+			&cfr.FailureRate,
+			&cfr.Repos,
+			&cfr.Actors,
+		); err != nil {
+			return nil, fmt.Errorf("scan command failure rate: %w", err)
+		}
+		rates = append(rates, cfr)
+	}
+	return rates, rows.Err()
+}
+
+// QuerySessionSequences returns ordered command sequences per session since the
+// given time.  Each entry preserves the execution order via sequence_num.
+func (c *NeonClient) QuerySessionSequences(ctx context.Context, since time.Time) ([]SessionSequence, error) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT session_id, command, COALESCE(exit_code, 0), has_error
+		FROM execution_events
+		WHERE timestamp >= $1
+		ORDER BY session_id, sequence_num ASC
+	`, since)
+	if err != nil {
+		return nil, fmt.Errorf("query session sequences: %w", err)
+	}
+	defer rows.Close()
+
+	// Accumulate entries per session in order.
+	seqMap := make(map[string]*SessionSequence)
+	var order []string // preserve insertion order
+
+	for rows.Next() {
+		var (
+			sessionID string
+			entry     SequenceEntry
+		)
+		if err := rows.Scan(&sessionID, &entry.Command, &entry.ExitCode, &entry.HasError); err != nil {
+			return nil, fmt.Errorf("scan session sequence: %w", err)
+		}
+		if _, ok := seqMap[sessionID]; !ok {
+			seqMap[sessionID] = &SessionSequence{SessionID: sessionID}
+			order = append(order, sessionID)
+		}
+		seqMap[sessionID].Events = append(seqMap[sessionID].Events, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sequences := make([]SessionSequence, 0, len(order))
+	for _, id := range order {
+		sequences = append(sequences, *seqMap[id])
+	}
+	return sequences, nil
 }

@@ -33,3 +33,26 @@ func (e Event) MatchedPolicy() string {
 	}
 	return e.Action
 }
+
+// CommandFailureRate tracks failure rates for a command from execution_events.
+type CommandFailureRate struct {
+	Command      string
+	TotalCount   int
+	FailureCount int
+	FailureRate  float64
+	Repos        []string
+	Actors       []string
+}
+
+// SessionSequence is an ordered list of commands within a session.
+type SessionSequence struct {
+	SessionID string
+	Events    []SequenceEntry
+}
+
+// SequenceEntry is one command in a session sequence.
+type SequenceEntry struct {
+	Command  string
+	ExitCode int
+	HasError bool
+}

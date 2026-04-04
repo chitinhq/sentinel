@@ -14,8 +14,10 @@ type Config struct {
 	Scoring     ScoringConfig     `yaml:"scoring"`
 	Routing     RoutingConfig     `yaml:"routing"`
 	Interpreter InterpreterConfig `yaml:"interpreter"`
-	Digest      DigestConfig      `yaml:"digest"`
-	GitHub      GitHubConfig      `yaml:"github"`
+	Digest          DigestConfig          `yaml:"digest"`
+	GitHub          GitHubConfig          `yaml:"github"`
+	Ingestion       IngestionConfig       `yaml:"ingestion"`
+	ExecutionPasses ExecutionPassesConfig `yaml:"execution_passes"`
 
 	// Environment variable overrides (not in YAML)
 	NeonDatabaseURL string `yaml:"-"`
@@ -82,6 +84,39 @@ type DigestConfig struct {
 type GitHubConfig struct {
 	Repo   string   `yaml:"repo"`
 	Labels []string `yaml:"labels"`
+}
+
+type IngestionConfig struct {
+	Enabled       bool                `yaml:"enabled"`
+	GitHubActions GitHubActionsConfig `yaml:"github_actions"`
+}
+
+type GitHubActionsConfig struct {
+	Repos         []string            `yaml:"repos"`
+	Since         time.Duration       `yaml:"since"`
+	PollInterval  time.Duration       `yaml:"poll_interval"`
+	ActorPatterns []ActorPatternConfig `yaml:"actor_patterns"`
+}
+
+type ActorPatternConfig struct {
+	Pattern string `yaml:"pattern"`
+	AgentID string `yaml:"agent_id"`
+}
+
+type ExecutionPassesConfig struct {
+	CommandFailure    CommandFailureConfig    `yaml:"command_failure"`
+	SequenceDetection SequenceDetectionConfig `yaml:"sequence_detection"`
+}
+
+type CommandFailureConfig struct {
+	MinOccurrences       int     `yaml:"min_occurrences"`
+	FailureRateThreshold float64 `yaml:"failure_rate_threshold"`
+}
+
+type SequenceDetectionConfig struct {
+	NgramRange           [2]int  `yaml:"ngram_range"`
+	MinFrequency         int     `yaml:"min_frequency"`
+	FailureRateThreshold float64 `yaml:"failure_rate_threshold"`
 }
 
 func Load(path string) (*Config, error) {

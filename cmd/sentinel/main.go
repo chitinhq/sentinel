@@ -10,6 +10,7 @@ import (
 	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
 	"github.com/AgentGuardHQ/sentinel/internal/config"
 	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/AgentGuardHQ/sentinel/internal/ingestion"
 	"github.com/AgentGuardHQ/sentinel/internal/interpreter"
 	"github.com/AgentGuardHQ/sentinel/internal/memory"
 	"github.com/AgentGuardHQ/sentinel/internal/pipeline"
@@ -18,7 +19,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest>")
+		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest>")
 		os.Exit(1)
 	}
 
@@ -31,6 +32,11 @@ func main() {
 	case "digest":
 		if err := runDigest(); err != nil {
 			fmt.Fprintf(os.Stderr, "digest failed: %v\n", err)
+			os.Exit(1)
+		}
+	case "ingest":
+		if err := runIngest(); err != nil {
+			fmt.Fprintf(os.Stderr, "ingest failed: %v\n", err)
 			os.Exit(1)
 		}
 	default:
@@ -165,6 +171,66 @@ func runDigest() error {
 	}
 
 	log.Printf("sentinel digest complete: %d findings written to %s", result.TotalFindings, digestDir)
+	return nil
+}
+
+// runIngest loads config, connects to Neon, fetches execution events from
+// GitHub Actions, and persists them.  Checkpoints are advanced after a
+// successful write so subsequent runs only fetch new data.
+func runIngest() error {
+	ctx := context.Background()
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if !cfg.Ingestion.Enabled {
+		log.Println("sentinel: ingestion disabled in config")
+		return nil
+	}
+	if cfg.NeonDatabaseURL == "" {
+		return fmt.Errorf("NEON_DATABASE_URL is required")
+	}
+	neon, err := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect neon: %w", err)
+	}
+	defer neon.Close()
+
+	store := ingestion.NewStore(neon)
+	adapter := ingestion.NewGHActionsAdapter(
+		cfg.Ingestion.GitHubActions,
+		"https://api.github.com",
+		cfg.GitHubToken,
+	)
+
+	cp, err := store.GetCheckpoint(ctx, "github_actions")
+	if err != nil {
+		return fmt.Errorf("get checkpoint: %w", err)
+	}
+
+	events, err := adapter.Ingest(ctx, cp)
+	if err != nil {
+		return fmt.Errorf("ingest: %w", err)
+	}
+
+	n, err := store.Write(ctx, events)
+	if err != nil {
+		return fmt.Errorf("write events: %w", err)
+	}
+
+	if len(events) > 0 {
+		last := events[len(events)-1]
+		err = store.SaveCheckpoint(ctx, ingestion.Checkpoint{
+			Adapter:   "github_actions",
+			LastRunID: last.SessionID,
+			LastRunAt: last.Timestamp,
+		})
+		if err != nil {
+			return fmt.Errorf("save checkpoint: %w", err)
+		}
+	}
+
+	log.Printf("sentinel: ingested %d execution events from GitHub Actions", n)
 	return nil
 }
 

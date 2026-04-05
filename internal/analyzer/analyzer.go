@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 // Store is the data-access interface the Analyzer requires.

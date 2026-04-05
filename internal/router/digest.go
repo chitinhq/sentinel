@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/analyzer"
 )
 
 // digestBodyTmpl is the raw template source for the weekly digest.

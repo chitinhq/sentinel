@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 func ProfileToolRisk(rates []db.DenialRate) []Finding {

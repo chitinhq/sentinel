@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/config"
 )
 
 func TestLoadFromFile(t *testing.T) {
@@ -22,8 +22,8 @@ func TestLoadFromFile(t *testing.T) {
 	if cfg.Routing.HighConfidence != 0.8 {
 		t.Errorf("HighConfidence = %f, want 0.8", cfg.Routing.HighConfidence)
 	}
-	if cfg.GitHub.Repo != "AgentGuardHQ/agent-guard" {
-		t.Errorf("Repo = %s, want AgentGuardHQ/agent-guard", cfg.GitHub.Repo)
+	if cfg.GitHub.Repo != "chitinhq/agent-guard" {
+		t.Errorf("Repo = %s, want chitinhq/agent-guard", cfg.GitHub.Repo)
 	}
 }
 

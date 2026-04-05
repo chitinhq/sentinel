@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/config"
 )
 
 // DetectBypassPatterns finds agents that repeatedly retry a denied action

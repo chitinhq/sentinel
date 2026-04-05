@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/AgentGuardHQ/sentinel/internal/ingestion"
+	"github.com/chitinhq/sentinel/internal/ingestion"
 )
 
 // EventStore defines the queries Sentinel needs from the telemetry database.

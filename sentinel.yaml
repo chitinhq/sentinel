@@ -34,7 +34,7 @@ digest:
   slack_enabled: false
 
 github:
-  repo: AgentGuardHQ/agent-guard
+  repo: chitinhq/agent-guard
   labels:
     - sentinel
     - "stage:architect"
@@ -43,11 +43,11 @@ ingestion:
   enabled: true
   github_actions:
     repos:
-      - AgentGuardHQ/agent-guard
-      - AgentGuardHQ/octi-pulpo
-      - AgentGuardHQ/sentinel
-      - AgentGuardHQ/cata
-      - AgentGuardHQ/shellforge
+      - chitinhq/agent-guard
+      - chitinhq/octi-pulpo
+      - chitinhq/sentinel
+      - chitinhq/cata
+      - chitinhq/shellforge
     since: 168h
     poll_interval: 1h
     actor_patterns:

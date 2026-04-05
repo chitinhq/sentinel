@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/config"
 )
 
 // GHActionsAdapter fetches GitHub Actions workflow runs and parses job steps

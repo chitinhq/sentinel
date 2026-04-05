@@ -22,7 +22,7 @@ func TestExecutionEventJSON(t *testing.T) {
 		Arguments:   []string{"test"},
 		ExitCode:    &exitCode,
 		DurationMs:  &dur,
-		Repository:  "AgentGuardHQ/agent-guard",
+		Repository:  "chitinhq/agent-guard",
 		Branch:      "main",
 		HasError:    false,
 		Tags:        map[string]string{"workflow": "ci"},

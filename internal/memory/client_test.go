@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/memory"
 )
 
 func TestMemoryClient_Store(t *testing.T) {

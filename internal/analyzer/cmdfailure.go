@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 // DetectCommandFailures identifies commands with high failure rates from

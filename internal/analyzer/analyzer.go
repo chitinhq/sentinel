@@ -92,6 +92,15 @@ func (a *Analyzer) Run(ctx context.Context) ([]Finding, error) {
 	log.Printf("sentinel: pass 5 (anomaly) found %d findings", len(anomalies))
 	all = append(all, anomalies...)
 
+	// Pass 6: Drift detection - need baseline events
+	baselineEvents, err := a.store.QueryEvents(ctx, baselineSince, now)
+	if err != nil {
+		return nil, fmt.Errorf("pass 6 (drift): %w", err)
+	}
+	driftFindings := DetectDrift(events, baselineEvents, a.cfg.Detection.Drift)
+	log.Printf("sentinel: pass 6 (drift) found %d findings", len(driftFindings))
+	all = append(all, driftFindings...)
+
 	log.Printf("sentinel: total findings: %d", len(all))
 	return all, nil
 }

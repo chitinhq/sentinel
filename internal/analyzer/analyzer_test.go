@@ -59,6 +59,7 @@ func TestAnalyzer_RunAllPasses(t *testing.T) {
 			FalsePositive: config.FalsePositiveConfig{MinSampleSize: 20, DeviationThreshold: 2.0, AbsoluteRateThreshold: 0.3},
 			Bypass:        config.BypassConfig{Window: 5 * time.Minute, MinRetries: 2},
 			Anomaly:       config.AnomalyConfig{VolumeSpikeThreshold: 3.0},
+			Drift:         config.DriftConfig{ActionDistributionThreshold: 0.1, OutcomeDistributionThreshold: 0.15, TemporalDistributionThreshold: 0.05},
 		},
 	}
 	a := analyzer.New(store, &cfg)

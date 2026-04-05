@@ -103,8 +103,10 @@ func testConfig() *config.Config {
 				Window:     5 * time.Minute,
 				MinRetries: 3,
 			},
-			Anomaly: config.AnomalyConfig{
-				VolumeSpikeThreshold: 3.0,
+			Drift: config.DriftConfig{
+				ActionDistributionThreshold:   0.1,
+				OutcomeDistributionThreshold:  0.15,
+				TemporalDistributionThreshold: 0.05,
 			},
 		},
 		Routing: config.RoutingConfig{

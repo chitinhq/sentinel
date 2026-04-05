@@ -9,6 +9,20 @@ import (
 	"github.com/AgentGuardHQ/sentinel/internal/db"
 )
 
+func max(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func DetectFalsePositives(current, baseline []db.DenialRate, cfg config.FalsePositiveConfig) []Finding {
 	baselineMap := make(map[string]db.DenialRate)
 	for _, b := range baseline {

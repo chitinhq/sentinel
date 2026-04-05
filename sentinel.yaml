@@ -12,6 +12,10 @@ detection:
     min_retries: 2
   anomaly:
     volume_spike_threshold: 3.0
+  drift:
+    action_distribution_threshold: 0.1
+    outcome_distribution_threshold: 0.15
+    temporal_distribution_threshold: 0.05
 
 scoring:
   weights:

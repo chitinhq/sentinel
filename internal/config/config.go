@@ -35,6 +35,7 @@ type DetectionConfig struct {
 	FalsePositive FalsePositiveConfig `yaml:"false_positive"`
 	Bypass        BypassConfig        `yaml:"bypass"`
 	Anomaly       AnomalyConfig       `yaml:"anomaly"`
+	Drift         DriftConfig         `yaml:"drift"`
 }
 
 type FalsePositiveConfig struct {
@@ -46,6 +47,12 @@ type FalsePositiveConfig struct {
 type BypassConfig struct {
 	Window     time.Duration `yaml:"window"`
 	MinRetries int           `yaml:"min_retries"`
+}
+
+type DriftConfig struct {
+	ActionDistributionThreshold   float64 `yaml:"action_distribution_threshold"`
+	OutcomeDistributionThreshold  float64 `yaml:"outcome_distribution_threshold"`
+	TemporalDistributionThreshold float64 `yaml:"temporal_distribution_threshold"`
 }
 
 type AnomalyConfig struct {

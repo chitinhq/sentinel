@@ -7,14 +7,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
-	"github.com/AgentGuardHQ/sentinel/internal/ingestion"
-	"github.com/AgentGuardHQ/sentinel/internal/interpreter"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
-	"github.com/AgentGuardHQ/sentinel/internal/pipeline"
-	"github.com/AgentGuardHQ/sentinel/internal/router"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/ingestion"
+	"github.com/chitinhq/sentinel/internal/interpreter"
+	"github.com/chitinhq/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/pipeline"
+	"github.com/chitinhq/sentinel/internal/router"
 )
 
 func main() {

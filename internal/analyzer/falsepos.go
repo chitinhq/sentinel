@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 func DetectFalsePositives(current, baseline []db.DenialRate, cfg config.FalsePositiveConfig) []Finding {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/router"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/router"
 )
 
 func testFindings() ([]analyzer.InterpretedFinding, []analyzer.RoutingDecision, map[string]string) {

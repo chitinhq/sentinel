@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 func TestNeonClient_Interface(t *testing.T) {

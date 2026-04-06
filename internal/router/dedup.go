@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/memory"
 )
 
 // GitHubClient abstracts GitHub issue operations so the router can work

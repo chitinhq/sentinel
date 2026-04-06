@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/AgentGuardHQ/sentinel/internal/mcp"
+	"github.com/chitinhq/sentinel/internal/mcp"
 )
 
 func main() {

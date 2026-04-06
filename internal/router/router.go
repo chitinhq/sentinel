@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/memory"
 )
 
 // Router gates findings through confidence thresholds, dedup checks, and

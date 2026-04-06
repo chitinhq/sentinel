@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
 )
 
 func TestBypassPass_DetectsRetryPattern(t *testing.T) {

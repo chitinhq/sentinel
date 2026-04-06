@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 // DetectFailureSequences extracts n-grams from session command sequences and

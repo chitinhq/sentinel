@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/interpreter"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/interpreter"
+	"github.com/chitinhq/sentinel/internal/memory"
 )
 
 func TestInterpreter_InterpretFindings(t *testing.T) {

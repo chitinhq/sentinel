@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/memory"
 )
 
 const systemPrompt = `You are a governance telemetry analyst for AgentGuard, an execution governance kernel for AI coding agents.

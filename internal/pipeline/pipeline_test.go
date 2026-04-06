@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
-	"github.com/AgentGuardHQ/sentinel/internal/memory"
-	"github.com/AgentGuardHQ/sentinel/internal/pipeline"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/memory"
+	"github.com/chitinhq/sentinel/internal/pipeline"
 )
 
 // --- Mock store ------------------------------------------------------------

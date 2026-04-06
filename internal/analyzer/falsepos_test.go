@@ -3,9 +3,9 @@ package analyzer_test
 import (
 	"testing"
 
-	"github.com/AgentGuardHQ/sentinel/internal/analyzer"
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/analyzer"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 func TestFalsePositivePass_DetectsHighDenialRate(t *testing.T) {

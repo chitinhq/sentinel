@@ -3,8 +3,8 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 // makeSeq is a helper that builds a SessionSequence from a list of

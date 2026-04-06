@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/config"
+	"github.com/chitinhq/sentinel/internal/config"
 )
 
 func TestIngestRunParsing(t *testing.T) {

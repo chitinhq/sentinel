@@ -1,4 +1,4 @@
-module github.com/AgentGuardHQ/sentinel
+module github.com/chitinhq/sentinel
 
 go 1.24.0
 

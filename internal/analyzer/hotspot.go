@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/AgentGuardHQ/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/db"
 )
 
 // DetectHotspots ranks actions by denial volume. Actions with zero denials are excluded.

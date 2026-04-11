@@ -5,9 +5,12 @@ import "time"
 type EventSource string
 
 const (
-	SourceGitHubActions EventSource = "github_actions"
-	SourceShellHistory  EventSource = "shell_history"
-	SourceTermius       EventSource = "termius"
+	SourceGitHubActions    EventSource = "github_actions"
+	SourceShellHistory     EventSource = "shell_history"
+	SourceTermius          EventSource = "termius"
+	SourceChitinGovernance EventSource = "chitin_governance"
+	SourceSwarmDispatch    EventSource = "swarm_dispatch"
+	SourceBrainState       EventSource = "brain_state"
 )
 
 type ActorType string

@@ -2,15 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/chitinhq/sentinel/internal/analyzer"
 	"github.com/chitinhq/sentinel/internal/config"
 	"github.com/chitinhq/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/health"
 	"github.com/chitinhq/sentinel/internal/ingestion"
+	"github.com/chitinhq/sentinel/internal/insights"
 	"github.com/chitinhq/sentinel/internal/interpreter"
 	"github.com/chitinhq/sentinel/internal/memory"
 	"github.com/chitinhq/sentinel/internal/pipeline"
@@ -37,6 +42,11 @@ func main() {
 	case "ingest":
 		if err := runIngest(); err != nil {
 			fmt.Fprintf(os.Stderr, "ingest failed: %v\n", err)
+			os.Exit(1)
+		}
+	case "health":
+		if err := runHealth(); err != nil {
+			fmt.Fprintf(os.Stderr, "health failed: %v\n", err)
 			os.Exit(1)
 		}
 	default:
@@ -124,7 +134,59 @@ func runAnalyze() error {
 	for id, url := range result.IssueURLs {
 		log.Printf("    %s → %s", id, url)
 	}
+
+	// --- Insight generation (post-analysis) ---
+	if cfg.Insights.Enabled && cfg.AnthropicAPIKey != "" {
+		redisClient, redisErr := connectRedis(cfg)
+		if redisErr != nil {
+			log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
+		}
+
+		neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+		if neonErr != nil {
+			log.Printf("sentinel: neon connect for insights failed: %v", neonErr)
+			return nil
+		}
+		defer neonForInsights.Close()
+
+		gen := insights.NewGenerator(
+			neonForInsights.Pool(),
+			redisClient,
+			insights.GeneratorConfig{
+				APIKey:               cfg.AnthropicAPIKey,
+				Model:                cfg.Interpreter.Model,
+				MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
+				ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
+				VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
+				NtfyTopic:            "ganglia",
+			},
+		)
+
+		generated, err := gen.MaybeGenerate(ctx)
+		if err != nil {
+			log.Printf("sentinel: insight generation failed: %v", err)
+		} else if len(generated) > 0 {
+			log.Printf("sentinel: generated %d insights", len(generated))
+			for _, ins := range generated {
+				log.Printf("  [%s/%s] %s", ins.Category, ins.Severity, truncateStr(ins.Narrative, 100))
+			}
+		} else {
+			log.Println("sentinel: no signal for insight generation")
+		}
+
+		if redisClient != nil {
+			redisClient.Close()
+		}
+	}
+
 	return nil
+}
+
+func truncateStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 // runDigest loads config, runs the pipeline, renders the weekly markdown
@@ -174,9 +236,17 @@ func runDigest() error {
 	return nil
 }
 
+// connectRedis creates a Redis client from config.
+func connectRedis(cfg *config.Config) (*redis.Client, error) {
+	opt, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse redis url: %w", err)
+	}
+	return redis.NewClient(opt), nil
+}
+
 // runIngest loads config, connects to Neon, fetches execution events from
-// GitHub Actions, and persists them.  Checkpoints are advanced after a
-// successful write so subsequent runs only fetch new data.
+// all configured adapters, persists them, and computes health scores.
 func runIngest() error {
 	ctx := context.Background()
 	cfg, err := config.Load(configPath())
@@ -197,40 +267,237 @@ func runIngest() error {
 	defer neon.Close()
 
 	store := ingestion.NewStore(neon)
-	adapter := ingestion.NewGHActionsAdapter(
-		cfg.Ingestion.GitHubActions,
-		"https://api.github.com",
-		cfg.GitHubToken,
-	)
+	totalIngested := 0
 
-	cp, err := store.GetCheckpoint(ctx, "github_actions")
-	if err != nil {
-		return fmt.Errorf("get checkpoint: %w", err)
-	}
-
-	events, err := adapter.Ingest(ctx, cp)
-	if err != nil {
-		return fmt.Errorf("ingest: %w", err)
-	}
-
-	n, err := store.Write(ctx, events)
-	if err != nil {
-		return fmt.Errorf("write events: %w", err)
-	}
-
-	if len(events) > 0 {
-		last := events[len(events)-1]
-		err = store.SaveCheckpoint(ctx, ingestion.Checkpoint{
-			Adapter:   "github_actions",
-			LastRunID: last.SessionID,
-			LastRunAt: last.Timestamp,
-		})
-		if err != nil {
-			return fmt.Errorf("save checkpoint: %w", err)
+	// Filter adapter if --adapter flag is set.
+	adapterFilter := ""
+	for i, arg := range os.Args {
+		if arg == "--adapter" && i+1 < len(os.Args) {
+			adapterFilter = os.Args[i+1]
 		}
 	}
 
-	log.Printf("sentinel: ingested %d execution events from GitHub Actions", n)
+	// --- GitHub Actions adapter ---
+	if adapterFilter == "" || adapterFilter == "github_actions" {
+		ghAdapter := ingestion.NewGHActionsAdapter(
+			cfg.Ingestion.GitHubActions,
+			"https://api.github.com",
+			cfg.GitHubToken,
+		)
+		cp, err := store.GetCheckpoint(ctx, "github_actions")
+		if err != nil {
+			return fmt.Errorf("get checkpoint: %w", err)
+		}
+		events, err := ghAdapter.Ingest(ctx, cp)
+		if err != nil {
+			log.Printf("sentinel: github_actions ingest error: %v", err)
+		} else {
+			n, err := store.Write(ctx, events)
+			if err != nil {
+				return fmt.Errorf("write github_actions events: %w", err)
+			}
+			if len(events) > 0 {
+				last := events[len(events)-1]
+				_ = store.SaveCheckpoint(ctx, ingestion.Checkpoint{
+					Adapter:   "github_actions",
+					LastRunID: last.SessionID,
+					LastRunAt: last.Timestamp,
+				})
+			}
+			totalIngested += n
+			log.Printf("sentinel: ingested %d events from github_actions", n)
+		}
+	}
+
+	// --- Chitin governance adapter ---
+	if adapterFilter == "" || adapterFilter == "chitin" {
+		if len(cfg.Ingestion.ChitinGovernance.Workspaces) > 0 {
+			cgAdapter := ingestion.NewChitinGovernanceAdapter(cfg.Ingestion.ChitinGovernance.Workspaces)
+			cp, _ := store.GetCheckpoint(ctx, "chitin_governance")
+			events, newCp, err := cgAdapter.Ingest(ctx, cp)
+			if err != nil {
+				log.Printf("sentinel: chitin_governance ingest error: %v", err)
+			} else {
+				n, err := store.Write(ctx, events)
+				if err != nil {
+					return fmt.Errorf("write chitin_governance events: %w", err)
+				}
+				if newCp != nil {
+					_ = store.SaveCheckpoint(ctx, *newCp)
+				}
+				totalIngested += n
+				log.Printf("sentinel: ingested %d events from chitin_governance", n)
+			}
+		}
+	}
+
+	// --- Swarm dispatch adapter ---
+	if adapterFilter == "" || adapterFilter == "swarm" {
+		if cfg.Ingestion.SwarmDispatch.TelemetryPath != "" {
+			sdAdapter := ingestion.NewSwarmDispatchAdapter(cfg.Ingestion.SwarmDispatch.TelemetryPath)
+			cp, _ := store.GetCheckpoint(ctx, "swarm_dispatch")
+			events, newCp, err := sdAdapter.Ingest(ctx, cp)
+			if err != nil {
+				log.Printf("sentinel: swarm_dispatch ingest error: %v", err)
+			} else {
+				n, err := store.Write(ctx, events)
+				if err != nil {
+					return fmt.Errorf("write swarm_dispatch events: %w", err)
+				}
+				if newCp != nil {
+					_ = store.SaveCheckpoint(ctx, *newCp)
+				}
+				totalIngested += n
+				log.Printf("sentinel: ingested %d events from swarm_dispatch", n)
+			}
+		}
+	}
+
+	// --- Brain state adapter ---
+	if adapterFilter == "" || adapterFilter == "brain" {
+		if cfg.Ingestion.BrainState.Enabled {
+			redisClient, err := connectRedis(cfg)
+			if err != nil {
+				log.Printf("sentinel: redis connect error (brain_state skipped): %v", err)
+			} else {
+				defer redisClient.Close()
+				bsAdapter := ingestion.NewBrainStateAdapter(redisClient, cfg.Ingestion.BrainState.Interval)
+				cp, _ := store.GetCheckpoint(ctx, "brain_state")
+				events, newCp, err := bsAdapter.Ingest(ctx, cp)
+				if err != nil {
+					log.Printf("sentinel: brain_state ingest error: %v", err)
+				} else {
+					n, err := store.Write(ctx, events)
+					if err != nil {
+						return fmt.Errorf("write brain_state events: %w", err)
+					}
+					if newCp != nil {
+						_ = store.SaveCheckpoint(ctx, *newCp)
+					}
+					totalIngested += n
+					log.Printf("sentinel: ingested %d events from brain_state", n)
+				}
+			}
+		}
+	}
+
+	log.Printf("sentinel: total ingested %d events across all adapters", totalIngested)
+
+	// --- Compute and persist health scores ---
+	if adapterFilter == "" {
+		redisClient, err := connectRedis(cfg)
+		if err != nil {
+			log.Printf("sentinel: redis connect error (health scoring skipped): %v", err)
+			return nil
+		}
+		defer redisClient.Close()
+
+		weights := health.Weights{
+			SuccessRate:          cfg.Health.Weights.SuccessRate,
+			GovernanceCompliance: cfg.Health.Weights.GovernanceCompliance,
+			Latency:              cfg.Health.Weights.Latency,
+			BudgetHealth:         cfg.Health.Weights.BudgetHealth,
+			Stability:            cfg.Health.Weights.Stability,
+		}
+		if weights.SuccessRate == 0 {
+			weights = health.DefaultWeights()
+		}
+
+		scorer := health.NewScorer(neon.Pool(), redisClient, weights)
+		scores, err := scorer.ComputeAll(ctx)
+		if err != nil {
+			log.Printf("sentinel: health scoring error: %v", err)
+			return nil
+		}
+
+		scorer.EnrichBudgetHealth(ctx, scores)
+
+		if err := scorer.PersistToNeon(ctx, scores); err != nil {
+			log.Printf("sentinel: persist health scores error: %v", err)
+		}
+		if err := scorer.PushToRedis(ctx, scores); err != nil {
+			log.Printf("sentinel: push health to redis error: %v", err)
+		}
+
+		log.Printf("sentinel: computed %d health scores", len(scores))
+	}
+
+	return nil
+}
+
+// runHealth displays current health scores.
+func runHealth() error {
+	ctx := context.Background()
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.NeonDatabaseURL == "" {
+		return fmt.Errorf("NEON_DATABASE_URL is required")
+	}
+	neon, err := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect neon: %w", err)
+	}
+	defer neon.Close()
+
+	// Parse flags.
+	var scopeType, scopeValue string
+	jsonOutput := false
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--platform":
+			scopeType = "platform"
+			if i+1 < len(os.Args) {
+				scopeValue = os.Args[i+1]
+				i++
+			}
+		case "--repo":
+			scopeType = "repo"
+			if i+1 < len(os.Args) {
+				scopeValue = os.Args[i+1]
+				i++
+			}
+		case "--queue":
+			scopeType = "queue"
+			if i+1 < len(os.Args) {
+				scopeValue = os.Args[i+1]
+				i++
+			}
+		case "--json":
+			jsonOutput = true
+		}
+	}
+
+	scores, err := db.QueryLatestHealthScores(ctx, neon.Pool(), scopeType, scopeValue)
+	if err != nil {
+		return fmt.Errorf("query health scores: %w", err)
+	}
+
+	if jsonOutput {
+		data, _ := json.Marshal(scores)
+		fmt.Println(string(data))
+		return nil
+	}
+
+	// Table output.
+	fmt.Printf("%-12s %-30s %5s  %7s  %10s  %7s  %6s  %9s  %7s\n",
+		"Type", "Value", "Score", "Success", "Governance", "Latency", "Budget", "Stability", "Samples")
+	for i := 0; i < 110; i++ {
+		fmt.Print("-")
+	}
+	fmt.Println()
+	for _, s := range scores {
+		fmt.Printf("%-12s %-30s %5d  %7d  %10d  %7d  %6d  %9d  %7d\n",
+			s.ScopeType, s.ScopeValue, s.Score,
+			s.Dimensions["success_rate"],
+			s.Dimensions["governance_compliance"],
+			s.Dimensions["latency"],
+			s.Dimensions["budget_health"],
+			s.Dimensions["stability"],
+			s.SampleSize,
+		)
+	}
 	return nil
 }
 

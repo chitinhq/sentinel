@@ -18,8 +18,11 @@ type Config struct {
 	GitHub          GitHubConfig          `yaml:"github"`
 	Ingestion       IngestionConfig       `yaml:"ingestion"`
 	ExecutionPasses ExecutionPassesConfig `yaml:"execution_passes"`
+	Health          HealthConfig          `yaml:"health"`
+	Insights        InsightsConfig        `yaml:"insights"`
 
 	// Environment variable overrides (not in YAML)
+	RedisURL        string `yaml:"-"`
 	NeonDatabaseURL string `yaml:"-"`
 	AnthropicAPIKey string `yaml:"-"`
 	QdrantURL       string `yaml:"-"`
@@ -87,8 +90,11 @@ type GitHubConfig struct {
 }
 
 type IngestionConfig struct {
-	Enabled       bool                `yaml:"enabled"`
-	GitHubActions GitHubActionsConfig `yaml:"github_actions"`
+	Enabled           bool                   `yaml:"enabled"`
+	GitHubActions     GitHubActionsConfig    `yaml:"github_actions"`
+	ChitinGovernance  ChitinGovernanceConfig `yaml:"chitin_governance"`
+	SwarmDispatch     SwarmDispatchConfig    `yaml:"swarm_dispatch"`
+	BrainState        BrainStateConfig       `yaml:"brain_state"`
 }
 
 type GitHubActionsConfig struct {
@@ -101,6 +107,41 @@ type GitHubActionsConfig struct {
 type ActorPatternConfig struct {
 	Pattern string `yaml:"pattern"`
 	AgentID string `yaml:"agent_id"`
+}
+
+type HealthConfig struct {
+	WindowHours             int            `yaml:"window_hours"`
+	Weights                 HealthWeights  `yaml:"weights"`
+	BrainHealthThresholdSkip  int          `yaml:"brain_health_threshold_skip"`
+	BrainHealthThresholdLimit int          `yaml:"brain_health_threshold_limit"`
+}
+
+type HealthWeights struct {
+	SuccessRate          float64 `yaml:"success_rate"`
+	GovernanceCompliance float64 `yaml:"governance_compliance"`
+	Latency              float64 `yaml:"latency"`
+	BudgetHealth         float64 `yaml:"budget_health"`
+	Stability            float64 `yaml:"stability"`
+}
+
+type InsightsConfig struct {
+	Enabled              bool    `yaml:"enabled"`
+	MaxFrequencyMinutes  int     `yaml:"max_frequency_minutes"`
+	VolumeSpikeThreshold float64 `yaml:"volume_spike_threshold"`
+	ScoreDeltaThreshold  int     `yaml:"score_delta_threshold"`
+}
+
+type ChitinGovernanceConfig struct {
+	Workspaces []string `yaml:"workspaces"`
+}
+
+type SwarmDispatchConfig struct {
+	TelemetryPath string `yaml:"telemetry_path"`
+}
+
+type BrainStateConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Interval time.Duration `yaml:"interval"`
 }
 
 type ExecutionPassesConfig struct {
@@ -131,6 +172,10 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Environment variable overrides
+	cfg.RedisURL = os.Getenv("SENTINEL_REDIS_URL")
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
 	cfg.NeonDatabaseURL = os.Getenv("NEON_DATABASE_URL")
 	cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
 	cfg.QdrantURL = os.Getenv("QDRANT_URL")

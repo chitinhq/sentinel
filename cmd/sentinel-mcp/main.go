@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/chitinhq/sentinel/internal/mcp"
 )
@@ -37,9 +38,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Connect to Redis (optional — observability tools degrade gracefully)
+	redisURL := os.Getenv("SENTINEL_REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+	var rs *mcp.RedisStore
+	if opt, err := redis.ParseURL(redisURL); err == nil {
+		redisClient := redis.NewClient(opt)
+		if err := redisClient.Ping(context.Background()).Err(); err == nil {
+			rs = mcp.NewRedisStore(redisClient)
+			defer redisClient.Close()
+			fmt.Fprintln(os.Stderr, "sentinel-mcp: redis connected")
+		} else {
+			fmt.Fprintf(os.Stderr, "sentinel-mcp: redis unavailable (%v) — skip list/budget tools disabled\n", err)
+		}
+	}
+
 	// Build MCP server
 	server := mcp.New()
 	mcp.RegisterTools(server, pool, tenantID)
+
+	// Register observability tools (health, query, failures, trends, skip list, budget)
+	qs := mcp.NewQueryStore(pool)
+	mcp.RegisterObservabilityTools(server, qs, rs)
 
 	fmt.Fprintln(os.Stderr, "sentinel-mcp: ready (stdio)")
 

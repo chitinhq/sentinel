@@ -57,6 +57,35 @@ ingestion:
         agent_id: "copilot"
       - pattern: "octi-pulpo"
         agent_id: "octi-pulpo"
+  chitin_governance:
+    workspaces:
+      - /home/jared/workspace/chitin
+      - /home/jared/workspace/octi
+      - /home/jared/workspace/sentinel
+      - /home/jared/workspace/clawta
+      - /home/jared/workspace/shellforge
+  swarm_dispatch:
+    telemetry_path: /home/jared/.local/share/octi/telemetry/swarm-events.jsonl
+  brain_state:
+    enabled: true
+    interval: 5m
+
+insights:
+  enabled: true
+  max_frequency_minutes: 60
+  volume_spike_threshold: 3.0
+  score_delta_threshold: 5
+
+health:
+  window_hours: 24
+  weights:
+    success_rate: 0.30
+    governance_compliance: 0.25
+    latency: 0.15
+    budget_health: 0.15
+    stability: 0.15
+  brain_health_threshold_skip: 30
+  brain_health_threshold_limit: 60
 
 execution_passes:
   command_failure:

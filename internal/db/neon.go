@@ -68,6 +68,11 @@ func (c *NeonClient) Close() {
 	c.pool.Close()
 }
 
+// Pool returns the underlying pgxpool.Pool for direct use by other packages.
+func (c *NeonClient) Pool() *pgxpool.Pool {
+	return c.pool
+}
+
 func (c *NeonClient) QueryEvents(ctx context.Context, since, until time.Time) ([]Event, error) {
 	rows, err := c.pool.Query(ctx, `
 		SELECT id::text, timestamp, agent_id, session_id, event_type,
@@ -292,6 +297,66 @@ func (c *NeonClient) UpsertCheckpoint(ctx context.Context, cp ingestion.Checkpoi
 		return fmt.Errorf("upsert checkpoint: %w", err)
 	}
 	return nil
+}
+
+// HealthScoreRow represents a health score row from the database.
+type HealthScoreRow struct {
+	ScopeType   string         `json:"scope_type"`
+	ScopeValue  string         `json:"scope_value"`
+	Score       int            `json:"score"`
+	Dimensions  map[string]int `json:"dimensions"`
+	SampleSize  int            `json:"sample_size"`
+	Timestamp   time.Time      `json:"timestamp"`
+}
+
+// QueryLatestHealthScores retrieves the latest health score per scope.
+// If scopeType is empty, returns all scopes. If scopeValue is non-empty,
+// filters to that specific value.
+func QueryLatestHealthScores(ctx context.Context, pool *pgxpool.Pool, scopeType, scopeValue string) ([]HealthScoreRow, error) {
+	query := `
+		SELECT scope_type, scope_value, score, dimensions, sample_size, timestamp
+		FROM health_scores h1
+		WHERE timestamp = (
+			SELECT MAX(h2.timestamp) FROM health_scores h2
+			WHERE h2.scope_type = h1.scope_type
+			  AND h2.scope_value = h1.scope_value
+		)
+	`
+	args := []interface{}{}
+	argIdx := 1
+
+	if scopeType != "" {
+		query += fmt.Sprintf(" AND scope_type = $%d", argIdx)
+		args = append(args, scopeType)
+		argIdx++
+	}
+	if scopeValue != "" {
+		query += fmt.Sprintf(" AND scope_value = $%d", argIdx)
+		args = append(args, scopeValue)
+		argIdx++
+	}
+	query += " ORDER BY score ASC"
+	_ = argIdx
+
+	rows, err := pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query health scores: %w", err)
+	}
+	defer rows.Close()
+
+	var scores []HealthScoreRow
+	for rows.Next() {
+		var s HealthScoreRow
+		var dimsJSON []byte
+		if err := rows.Scan(&s.ScopeType, &s.ScopeValue, &s.Score, &dimsJSON, &s.SampleSize, &s.Timestamp); err != nil {
+			return nil, fmt.Errorf("scan health score: %w", err)
+		}
+		if dimsJSON != nil {
+			_ = json.Unmarshal(dimsJSON, &s.Dimensions)
+		}
+		scores = append(scores, s)
+	}
+	return scores, rows.Err()
 }
 
 // QueryCommandFailureRates returns failure rates per command from execution_events

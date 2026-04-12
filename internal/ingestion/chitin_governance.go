@@ -26,6 +26,8 @@ type chitinEvent struct {
 	Source      string                 `json:"source"` // "policy", "invariant", etc.
 	LatencyUs   int64                  `json:"latency_us"`
 	Explanation map[string]interface{} `json:"explanation,omitempty"`
+	TrustScore  *int                   `json:"trust_score,omitempty"`
+	TrustLevel  string                 `json:"trust_level,omitempty"`
 }
 
 // ChitinGovernanceAdapter reads .chitin/events.jsonl from configured workspace
@@ -161,6 +163,12 @@ func (a *ChitinGovernanceAdapter) readFile(path string, offset int64) ([]Executi
 		}
 		if ce.Command != "" {
 			ev.Tags["command"] = ce.Command
+		}
+		if ce.TrustScore != nil {
+			ev.Tags["trust_score"] = strconv.Itoa(*ce.TrustScore)
+		}
+		if ce.TrustLevel != "" {
+			ev.Tags["trust_level"] = ce.TrustLevel
 		}
 		events = append(events, ev)
 		seq++

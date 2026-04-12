@@ -15,3 +15,8 @@
 # Generated digests (tracked separately)
 digests/*.md
 !digests/.gitkeep
+
+# Chitin runtime
+.chitin/
+.agentguard/
+outputs/

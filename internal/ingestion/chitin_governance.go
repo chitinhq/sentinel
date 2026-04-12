@@ -176,7 +176,7 @@ func (a *ChitinGovernanceAdapter) readFile(path string, offset int64) ([]Executi
 }
 
 // inferRepo attempts to extract a repo name from a file path.
-// e.g. "/home/jared/workspace/sentinel/.chitin/events.jsonl" → "chitinhq/sentinel"
+// e.g. "/path/to/sentinel/.chitin/events.jsonl" → "chitinhq/sentinel"
 func inferRepo(path string) string {
 	dir := filepath.Dir(filepath.Dir(path)) // strip /.chitin/events.jsonl
 	base := filepath.Base(dir)

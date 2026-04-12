@@ -46,7 +46,6 @@ ingestion:
       - chitinhq/chitin
       - chitinhq/octi
       - chitinhq/sentinel
-      - chitinhq/clawta
       - chitinhq/shellforge
     since: 168h
     poll_interval: 1h
@@ -58,14 +57,16 @@ ingestion:
       - pattern: "octi-pulpo"
         agent_id: "octi-pulpo"
   chitin_governance:
+    # Configure workspace paths where chitin-governed repos are checked out.
+    # Use absolute paths or set WORKSPACE env var (e.g. ${WORKSPACE}/chitin).
     workspaces:
-      - /home/jared/workspace/chitin
-      - /home/jared/workspace/octi
-      - /home/jared/workspace/sentinel
-      - /home/jared/workspace/clawta
-      - /home/jared/workspace/shellforge
+      - ${WORKSPACE}/chitin
+      - ${WORKSPACE}/octi
+      - ${WORKSPACE}/sentinel
+      - ${WORKSPACE}/shellforge
   swarm_dispatch:
-    telemetry_path: /home/jared/.local/share/octi/telemetry/swarm-events.jsonl
+    # Path to Octi swarm telemetry events file.
+    telemetry_path: ${HOME}/.local/share/octi/telemetry/swarm-events.jsonl
   brain_state:
     enabled: true
     interval: 5m

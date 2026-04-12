@@ -158,7 +158,7 @@ func runAnalyze() error {
 				MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
 				ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
 				VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
-				NtfyTopic:            "ganglia",
+				NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
 			},
 		)
 
@@ -180,6 +180,13 @@ func runAnalyze() error {
 	}
 
 	return nil
+}
+
+func getEnvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func truncateStr(s string, max int) string {

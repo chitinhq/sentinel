@@ -14,7 +14,7 @@ import (
 	"github.com/chitinhq/sentinel/internal/memory"
 )
 
-const systemPrompt = `You are a governance telemetry analyst for AgentGuard, an execution governance kernel for AI coding agents.
+const systemPrompt = `You are a governance telemetry analyst for Chitin, an execution governance kernel for AI coding agents.
 
 You are given a set of statistical findings from today's telemetry analysis, along with related past findings from the knowledge store.
 

@@ -134,6 +134,20 @@ golangci-lint run
 
 Set `SENTINEL_CONFIG` to point to a custom config path (defaults to `sentinel.yaml` in the working directory). Set `SENTINEL_DIGEST_DIR` to control where digest markdown files are written.
 
+## Part of the Chitin Platform
+
+Sentinel is the telemetry engine. Other repos:
+
+| Repo | Role | Start here if you want to… |
+|------|------|------------------------------|
+| [chitin](https://github.com/chitinhq/chitin) | Governance kernel — policy, invariants, hooks | Gate an agent you already use |
+| [shellforge](https://github.com/chitinhq/shellforge) | Local governed agent runtime | Run a governed agent end-to-end |
+| [octi](https://github.com/chitinhq/octi) | Swarm coordinator — triage, dispatch, routing | Orchestrate multiple agents |
+| **sentinel** (this repo) | Telemetry + detection on agent traces | Analyze how agents fail |
+| [llmint](https://github.com/chitinhq/llmint) | Token-economics middleware for LLM providers | Control LLM cost in Go apps |
+
+New to the platform? See [chitin's GETTING_STARTED.md](https://github.com/chitinhq/chitin/blob/main/GETTING_STARTED.md).
+
 ## License
 
 MIT

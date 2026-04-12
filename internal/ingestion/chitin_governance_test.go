@@ -82,6 +82,56 @@ func TestChitinGovernanceAdapter_Ingest(t *testing.T) {
 	}
 }
 
+// TestChitinGovernanceAdapter_TrustTelemetry verifies that trust_score /
+// trust_level flow from chitin events into execution_events.tags. The
+// zero-score case is important: chitin emits trust_score as *int precisely
+// so "score = 0" (lowest-trust agent) survives omitempty serialization,
+// and Sentinel must not drop that signal when forwarding to the tags map.
+func TestChitinGovernanceAdapter_TrustTelemetry(t *testing.T) {
+	dir := t.TempDir()
+	chitinDir := filepath.Join(dir, ".chitin")
+	os.MkdirAll(chitinDir, 0755)
+
+	eventsFile := filepath.Join(chitinDir, "events.jsonl")
+	data := `{"ts":"2026-04-12T09:00:00Z","sid":"s","agent":"a1","tool":"Bash","action":"exec","outcome":"allow","source":"policy","latency_us":100,"trust_score":500,"trust_level":"baseline"}
+{"ts":"2026-04-12T09:01:00Z","sid":"s","agent":"a2","tool":"Bash","action":"exec","outcome":"deny","source":"policy","latency_us":100,"trust_score":0,"trust_level":"restricted"}
+{"ts":"2026-04-12T09:02:00Z","sid":"s","agent":"a3","tool":"Bash","action":"exec","outcome":"allow","source":"policy","latency_us":100}
+`
+	os.WriteFile(eventsFile, []byte(data), 0644)
+
+	adapter := NewChitinGovernanceAdapter([]string{dir})
+	events, _, err := adapter.Ingest(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	if got := events[0].Tags["trust_score"]; got != "500" {
+		t.Errorf("baseline trust_score tag = %q, want %q", got, "500")
+	}
+	if got := events[0].Tags["trust_level"]; got != "baseline" {
+		t.Errorf("baseline trust_level tag = %q, want %q", got, "baseline")
+	}
+
+	// The keystone assertion: score=0 must survive.
+	if got := events[1].Tags["trust_score"]; got != "0" {
+		t.Errorf("restricted trust_score tag = %q, want %q (score=0 must be preserved)", got, "0")
+	}
+	if got := events[1].Tags["trust_level"]; got != "restricted" {
+		t.Errorf("restricted trust_level tag = %q, want %q", got, "restricted")
+	}
+
+	// Event without trust fields must not gain empty tags.
+	if _, ok := events[2].Tags["trust_score"]; ok {
+		t.Errorf("untagged event should not have trust_score tag, got %q", events[2].Tags["trust_score"])
+	}
+	if _, ok := events[2].Tags["trust_level"]; ok {
+		t.Errorf("untagged event should not have trust_level tag, got %q", events[2].Tags["trust_level"])
+	}
+}
+
 func TestChitinGovernanceAdapter_IncrementalRead(t *testing.T) {
 	dir := t.TempDir()
 	chitinDir := filepath.Join(dir, ".chitin")

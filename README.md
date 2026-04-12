@@ -4,34 +4,45 @@ Telemetry engine for the Chitin governance platform. Ingests GitHub Actions exec
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph Ingestion
-        GH[GitHub Actions API] -->|workflow runs + job steps| Adapter[GHActionsAdapter]
-        Adapter -->|ExecutionEvents| Neon[(Neon PostgreSQL)]
-    end
+```text
+Ingestion
+---------
+  [ GitHub Actions API ]
+         |  workflow runs + job steps
+         v
+  [ GHActionsAdapter ]
+         |  ExecutionEvents
+         v
+  [ Neon PostgreSQL ]
 
-    subgraph "Pipeline: Analyze"
-        Neon -->|governance_events + execution_events| A[Analyzer]
+Pipeline: Analyze
+-----------------
+  [ Neon PostgreSQL ]
+         |  governance_events + execution_events
+         v
+  [ Analyzer ]
+    |-- Pass 1: Hotspot Ranking
+    |-- Pass 2: False Positive Detection
+    |-- Pass 3: Bypass Pattern Matching
+    |-- Pass 4: Tool Risk Profiling
+    |-- Pass 5: Anomaly Detection
+    |-- Pass 6: Command Failure Rates
+    '-- Pass 7: Sequence Detection
+         |  Findings
+         v
+  [ Interpreter ]
+         |  Anthropic Messages API
+         v
+    [ Claude ]
+         |  InterpretedFindings
+         v
+  [ Router ]
 
-        A -->|Pass 1| Hotspot[Hotspot Ranking]
-        A -->|Pass 2| FP[False Positive Detection]
-        A -->|Pass 3| Bypass[Bypass Pattern Matching]
-        A -->|Pass 4| ToolRisk[Tool Risk Profiling]
-        A -->|Pass 5| Anomaly[Anomaly Detection]
-        A -->|Pass 6| CmdFail[Command Failure Rates]
-        A -->|Pass 7| SeqDet[Sequence Detection]
-
-        Hotspot & FP & Bypass & ToolRisk & Anomaly & CmdFail & SeqDet -->|Findings| Interp[Interpreter]
-        Interp -->|Anthropic Messages API| LLM[Claude]
-        LLM -->|InterpretedFindings| Router
-    end
-
-    subgraph Routing
-        Router -->|high confidence + actionable| Issues[GitHub Issues]
-        Router -->|medium confidence| Digest[Weekly Digest]
-        Router -->|all findings| Memory[Qdrant via Octi Pulpo]
-    end
+Routing
+-------
+  [ Router ] -- high confidence + actionable --> GitHub Issues
+  [ Router ] -- medium confidence ------------> Weekly Digest
+  [ Router ] -- all findings ------------------> Qdrant (via Octi Pulpo)
 ```
 
 ## Getting Started

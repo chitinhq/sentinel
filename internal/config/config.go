@@ -96,6 +96,7 @@ type IngestionConfig struct {
 	Enabled           bool                   `yaml:"enabled"`
 	GitHubActions     GitHubActionsConfig    `yaml:"github_actions"`
 	ChitinGovernance  ChitinGovernanceConfig `yaml:"chitin_governance"`
+	ChitinRuntime     ChitinRuntimeConfig    `yaml:"chitin_runtime"`
 	SwarmDispatch     SwarmDispatchConfig    `yaml:"swarm_dispatch"`
 	BrainState        BrainStateConfig       `yaml:"brain_state"`
 }
@@ -156,6 +157,17 @@ const DefaultChitinTenantID = "00000000-0000-0000-0000-000000000001"
 
 type ChitinGovernanceConfig struct {
 	Workspaces []string `yaml:"workspaces"`
+}
+
+// ChitinRuntimeConfig configures the chitin runtime adapter, which
+// ingests session/gate/soul events emitted by the chitin CLI's
+// runtime layer (distinct from the per-repo kernel events).
+type ChitinRuntimeConfig struct {
+	// StateDir is $XDG_STATE_HOME/chitin (session-events.log,
+	// soul-events.log). Empty disables the adapter.
+	StateDir string `yaml:"state_dir"`
+	// ShareDir is ~/.local/share/chitin (gate-events.log).
+	ShareDir string `yaml:"share_dir"`
 }
 
 type SwarmDispatchConfig struct {

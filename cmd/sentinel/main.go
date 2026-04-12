@@ -374,6 +374,29 @@ func runIngestInner() error {
 		}
 	}
 
+	// --- Chitin runtime adapter (session/gate/soul events) ---
+	if adapterFilter == "" || adapterFilter == "chitin-runtime" {
+		rt := cfg.Ingestion.ChitinRuntime
+		if rt.StateDir != "" {
+			crAdapter := ingestion.NewChitinRuntimeAdapter(rt.StateDir, rt.ShareDir)
+			cp, _ := store.GetCheckpoint(ctx, "chitin_runtime")
+			events, newCp, err := crAdapter.Ingest(ctx, cp)
+			if err != nil {
+				log.Printf("sentinel: chitin_runtime ingest error: %v", err)
+			} else {
+				n, err := store.Write(ctx, events)
+				if err != nil {
+					return fmt.Errorf("write chitin_runtime events: %w", err)
+				}
+				if newCp != nil {
+					_ = store.SaveCheckpoint(ctx, *newCp)
+				}
+				totalIngested += n
+				log.Printf("sentinel: ingested %d events from chitin_runtime", n)
+			}
+		}
+	}
+
 	// --- Swarm dispatch adapter ---
 	if adapterFilter == "" || adapterFilter == "swarm" {
 		if cfg.Ingestion.SwarmDispatch.TelemetryPath != "" {

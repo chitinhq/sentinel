@@ -9,6 +9,7 @@ const (
 	SourceShellHistory     EventSource = "shell_history"
 	SourceTermius          EventSource = "termius"
 	SourceChitinGovernance EventSource = "chitin_governance"
+	SourceChitinRuntime    EventSource = "chitin_runtime"
 	SourceSwarmDispatch    EventSource = "swarm_dispatch"
 	SourceBrainState       EventSource = "brain_state"
 )

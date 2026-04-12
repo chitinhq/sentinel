@@ -64,6 +64,12 @@ ingestion:
       - ${WORKSPACE}/octi
       - ${WORKSPACE}/sentinel
       - ${WORKSPACE}/shellforge
+  chitin_runtime:
+    # Chitin's runtime layer (session/gate/soul events). Distinct
+    # from chitin_governance: this is per-user state, not per-repo.
+    # Empty state_dir disables the adapter.
+    state_dir: ${HOME}/.local/state/chitin
+    share_dir: ${HOME}/.local/share/chitin
   swarm_dispatch:
     # Path to Octi swarm telemetry events file.
     telemetry_path: ${HOME}/.local/share/octi/telemetry/swarm-events.jsonl

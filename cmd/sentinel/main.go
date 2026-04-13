@@ -73,6 +73,24 @@ func main() {
 			os.Exit(1)
 		}
 	case "analyze":
+		// Support `sentinel analyze --insights-only` to skip the detection
+		// pipeline and only run the insight-generation pass. Used by the
+		// hourly cron (.github/workflows/sentinel-insights.yml) which wants
+		// to wake LLM-summarized insights without re-running ingest/detect.
+		insightsOnly := false
+		for _, a := range os.Args[2:] {
+			if a == "--insights-only" {
+				insightsOnly = true
+				break
+			}
+		}
+		if insightsOnly {
+			if err := runInsightsOnly(); err != nil {
+				fmt.Fprintf(os.Stderr, "analyze --insights-only failed: %v\n", err)
+				os.Exit(1)
+			}
+			break
+		}
 		if err := runAnalyze(); err != nil {
 			fmt.Fprintf(os.Stderr, "analyze failed: %v\n", err)
 			os.Exit(1)
@@ -187,30 +205,12 @@ func runAnalyze() error {
 
 	// --- Insight generation (post-analysis) ---
 	if cfg.Insights.Enabled && cfg.AnthropicAPIKey != "" {
-		redisClient, redisErr := connectRedis(cfg)
-		if redisErr != nil {
-			log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
-		}
-
-		neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
-		if neonErr != nil {
-			log.Printf("sentinel: neon connect for insights failed: %v", neonErr)
+		gen, cleanupGen, err := setupInsightGenerator(ctx, cfg)
+		if err != nil {
+			log.Printf("sentinel: insight setup failed: %v", err)
 			return nil
 		}
-		defer neonForInsights.Close()
-
-		gen := insights.NewGenerator(
-			neonForInsights.Pool(),
-			redisClient,
-			insights.GeneratorConfig{
-				APIKey:               cfg.AnthropicAPIKey,
-				Model:                cfg.Interpreter.Model,
-				MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
-				ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
-				VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
-				NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
-			},
-		)
+		defer cleanupGen()
 
 		generated, err := gen.MaybeGenerate(ctx)
 		if err != nil {
@@ -223,12 +223,104 @@ func runAnalyze() error {
 		} else {
 			log.Println("sentinel: no signal for insight generation")
 		}
+	}
 
+	return nil
+}
+
+// setupInsightGenerator wires the shared Redis + Neon + insights.Generator
+// setup used by both runAnalyze (post-analysis insight pass) and
+// runInsightsOnly (cron-driven --insights-only path). Redis is optional:
+// a connect failure logs + returns a nil client so the generator can
+// still run without cross-run rate limiting. Neon failures are fatal.
+// The returned cleanup closes both clients; always defer it.
+func setupInsightGenerator(ctx context.Context, cfg *config.Config) (*insights.Generator, func(), error) {
+	redisClient, redisErr := connectRedis(cfg)
+	if redisErr != nil {
+		log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
+		redisClient = nil
+	}
+
+	neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+	if neonErr != nil {
+		if redisClient != nil {
+			redisClient.Close()
+		}
+		return nil, func() {}, fmt.Errorf("neon connect for insights: %w", neonErr)
+	}
+
+	gen := insights.NewGenerator(
+		neonForInsights.Pool(),
+		redisClient,
+		insights.GeneratorConfig{
+			APIKey:               cfg.AnthropicAPIKey,
+			Model:                cfg.Interpreter.Model,
+			MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
+			ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
+			VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
+			NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
+		},
+	)
+
+	cleanup := func() {
+		neonForInsights.Close()
 		if redisClient != nil {
 			redisClient.Close()
 		}
 	}
+	return gen, cleanup, nil
+}
 
+// runInsightsOnly runs only the insight-generation pass, skipping the full
+// analyze pipeline (and ingest/mine entirely). Intended for the hourly cron
+// workflow sentinel-insights.yml which wakes sentinel to generate insights
+// without incurring the full detection cost each hour.
+//
+// NOTE: This relies on slice 2 (feat/insights-via-octi-dispatch) to make the
+// generator itself free. Until that lands, this subcommand still requires
+// ANTHROPIC_API_KEY; without it we log and return cleanly (exit 0) so the
+// cron doesn't spam failures.
+func runInsightsOnly() error {
+	ctx := context.Background()
+
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if !cfg.Insights.Enabled {
+		log.Println("sentinel: insights disabled in config — nothing to do")
+		return nil
+	}
+	if cfg.NeonDatabaseURL == "" {
+		return fmt.Errorf("NEON_DATABASE_URL is required")
+	}
+	if cfg.AnthropicAPIKey == "" {
+		// TODO(slice-2): once feat/insights-via-octi-dispatch lands, the
+		// generator will dispatch via octi (no key required). Until then,
+		// log + exit 0 so the hourly cron stays green.
+		log.Println("sentinel: ANTHROPIC_API_KEY not set — insights dispatch path (slice 2) not yet wired; skipping")
+		return nil
+	}
+
+	gen, cleanup, err := setupInsightGenerator(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	generated, err := gen.MaybeGenerate(ctx)
+	if err != nil {
+		return fmt.Errorf("insight generation: %w", err)
+	}
+	if len(generated) > 0 {
+		log.Printf("sentinel: generated %d insights", len(generated))
+		for _, ins := range generated {
+			log.Printf("  [%s/%s] %s", ins.Category, ins.Severity, truncateStr(ins.Narrative, 100))
+		}
+	} else {
+		log.Println("sentinel: no signal for insight generation")
+	}
 	return nil
 }
 

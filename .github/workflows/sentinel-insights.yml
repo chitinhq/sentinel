@@ -1,0 +1,58 @@
+# Hourly cron that wakes sentinel to generate LLM-summarized insights from
+# execution_events / governance_events already in Neon. Uses the
+# `analyze --insights-only` path so it skips ingest + detection + mining.
+#
+# Cost posture: slice 2 (feat/insights-via-octi-dispatch) makes the insight
+# generator dispatch through octi (no Anthropic API key). Until that lands
+# the job will log + exit 0 if ANTHROPIC_API_KEY is absent, so the cron
+# stays green either way.
+name: Sentinel Insights (hourly)
+
+on:
+  schedule:
+    # Runs at :05 past every hour to avoid top-of-hour contention with
+    # other fleet crons.
+    - cron: "5 * * * *"
+  workflow_dispatch: {}
+
+# Prevent two crons (e.g. a long-running one + a manual dispatch) from
+# racing against the insights table / Redis rate-limit keys.
+concurrency:
+  group: sentinel-insights
+  cancel-in-progress: false
+
+jobs:
+  insights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build sentinel
+        run: go build -o bin/sentinel ./cmd/sentinel
+
+      - name: Run insights generation
+        env:
+          # TODO: confirm secret name matches other sentinel workflows once
+          # an ingest cron lands. Assumed present on the repo.
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          # Optional. When unset, `analyze --insights-only` logs + exits 0
+          # (see runInsightsOnly in cmd/sentinel/main.go). Slice 2 will
+          # replace this with an octi-dispatch path.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional. Used for insight rate-limit state; generator tolerates
+          # absence and just won't rate-limit across runs.
+          SENTINEL_REDIS_URL: ${{ secrets.REDIS_URL }}
+          NTFY_TOPIC: chitin
+        run: ./bin/sentinel analyze --insights-only

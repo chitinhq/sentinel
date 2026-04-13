@@ -66,4 +66,8 @@ type GeneratorInputs struct {
 	DispatchCounts map[string]int         `json:"dispatch_counts,omitempty"` // platform → count
 	BudgetPcts     map[string]int         `json:"budget_pcts,omitempty"`     // platform → usage_pct
 	EventVolume    int                    `json:"event_volume"`
+	// GovernanceDenyCounts counts deny outcomes in governance_events grouped
+	// by the metadata->>'reason' key, over the last 24h. A spike in any
+	// single reason is a strong signal of an emerging policy pattern.
+	GovernanceDenyCounts map[string]int `json:"governance_deny_counts,omitempty"`
 }

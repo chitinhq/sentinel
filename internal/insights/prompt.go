@@ -57,6 +57,23 @@ func buildRecommendationPrompt(dispatchCounts, budgetPcts map[string]int, platfo
 	return fmt.Sprintf("Platform utilization and failure data:\n%s", string(j))
 }
 
+// governancePatternSystemPrompt briefs the model on governance-specific
+// deny-reason patterns. Slice 2 adds this so governance spikes get their
+// own narrative rather than being mashed into the generic pattern prompt.
+func governancePatternSystemPrompt() string {
+	return `You are a swarm governance analyst. Given counts of policy deny outcomes grouped by deny_reason over the last 24 hours, identify the top 1-3 emerging policy-pattern insights. For each, explain what the deny_reason indicates about agent behavior and recommend either (a) tightening/loosening the policy, or (b) fixing the upstream driver prompt. Respond ONLY with a JSON array — no markdown fencing.
+
+Each element must have: {"category": "pattern", "severity": "info|warning|high|critical", "narrative": "...", "evidence": {"deny_reason": "...", "count": N}, "suggested_action": "...", "scope_type": "system", "scope_value": "governance"}`
+}
+
+func buildGovernancePrompt(denyCounts map[string]int) string {
+	data := map[string]any{
+		"deny_counts_by_reason_24h": denyCounts,
+	}
+	j, _ := json.Marshal(data)
+	return fmt.Sprintf("Governance deny-pattern data:\n%s", string(j))
+}
+
 func buildAnomalyPrompt(eventVolume int, avgVolume float64) string {
 	data := map[string]any{
 		"current_volume":       eventVolume,

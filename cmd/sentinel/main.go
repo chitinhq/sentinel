@@ -24,11 +24,37 @@ import (
 	"github.com/chitinhq/sentinel/internal/router"
 )
 
+// sentinelStartTime is the process start time for self-heartbeat uptime.
+var sentinelStartTime = time.Now()
+
+// sentinelVersion is a compile-time version string (set via -ldflags), falling
+// back to "dev" when unset.
+var sentinelVersion = "dev"
+
+// emitSelfHeartbeat emits a driver.sentinel.heartbeat flow event so the
+// fleet-health view (chitinhq/sentinel#43 `sentinel drivers`) knows when
+// sentinel last ran. Best-effort; flow.Emit swallows I/O errors.
+func emitSelfHeartbeat(subcommand string) {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	flow.Emit("driver.sentinel.heartbeat", flow.Completed, map[string]any{
+		"subcommand":     subcommand,
+		"host":           host,
+		"pid":            os.Getpid(),
+		"uptime_seconds": time.Since(sentinelStartTime).Seconds(),
+		"version":        sentinelVersion,
+	})
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows>")
 		os.Exit(1)
 	}
+
+	emitSelfHeartbeat(os.Args[1])
 
 	switch os.Args[1] {
 	case "flows":

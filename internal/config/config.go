@@ -43,6 +43,14 @@ type DetectionConfig struct {
 	FalsePositive FalsePositiveConfig `yaml:"false_positive"`
 	Bypass        BypassConfig        `yaml:"bypass"`
 	Anomaly       AnomalyConfig       `yaml:"anomaly"`
+	Unacked       UnackedConfig       `yaml:"unacked"`
+}
+
+// UnackedConfig controls the dispatch-to-dead-target detector: a flow.X.started
+// event with no matching .completed or .failed within TTL indicates the caller
+// reported success at boundary N without receipt from boundary N+1.
+type UnackedConfig struct {
+	TTL time.Duration `yaml:"ttl"`
 }
 
 type FalsePositiveConfig struct {
@@ -238,6 +246,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Tenant.ID == "" {
 		cfg.Tenant.ID = DefaultChitinTenantID
+	}
+
+	// Unacked detector default: 60s TTL. Longer than most flow durations
+	// but short enough that dispatch-to-dead-target surfaces within a run.
+	if cfg.Detection.Unacked.TTL == 0 {
+		cfg.Detection.Unacked.TTL = 60 * time.Second
 	}
 
 	// Heartbeat defaults — see HeartbeatConfig doc.

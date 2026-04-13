@@ -1,0 +1,15 @@
+[Unit]
+Description=Sentinel digest — every 15 minutes
+Documentation=https://github.com/chitinhq/sentinel
+
+[Timer]
+# First run 2 minutes after boot/login, then every 15 minutes.
+OnBootSec=2min
+OnUnitActiveSec=15min
+# Catch up missed runs after suspend/reboot.
+Persistent=true
+AccuracySec=30s
+Unit=sentinel-digest.service
+
+[Install]
+WantedBy=timers.target

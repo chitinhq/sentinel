@@ -1,0 +1,14 @@
+[Unit]
+Description=Sentinel analyze — every hour
+Documentation=https://github.com/chitinhq/sentinel
+
+[Timer]
+# First run 5 minutes after boot/login, then every hour.
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+AccuracySec=1min
+Unit=sentinel-analyze.service
+
+[Install]
+WantedBy=timers.target

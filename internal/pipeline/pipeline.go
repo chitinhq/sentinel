@@ -14,6 +14,7 @@ import (
 	"github.com/chitinhq/sentinel/internal/analyzer"
 	"github.com/chitinhq/sentinel/internal/config"
 	"github.com/chitinhq/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/flow"
 	"github.com/chitinhq/sentinel/internal/memory"
 	"github.com/chitinhq/sentinel/internal/router"
 )
@@ -78,20 +79,34 @@ func (p *Pipeline) Analyze(ctx context.Context) (*RunResult, error) {
 	log.Printf("pipeline: stage 1 complete — %d findings", len(findings))
 
 	// --- Stage 2: Interpreter -----------------------------------------------
-	interpreted, err := p.interp.Interpret(ctx, findings)
-	if err != nil {
+	var interpreted []analyzer.InterpretedFinding
+	if err := flow.Span("sentinel.interpret", nil, func() error {
+		var ierr error
+		interpreted, ierr = p.interp.Interpret(ctx, findings)
+		if ierr != nil {
+			return ierr
+		}
+		flow.Complete("sentinel.interpret.count", map[string]any{"interpreted": len(interpreted)})
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("interpreter: %w", err)
 	}
 	log.Printf("pipeline: stage 2 complete — %d interpreted findings", len(interpreted))
 
 	// --- Stage 3: Router ----------------------------------------------------
 	r := router.New(p.cfg.Routing, p.mem, p.gh, p.cfg.GitHub)
-	decisions, err := r.RouteAll(ctx, interpreted)
-	if err != nil {
-		// RouteAll collects per-finding errors but still returns decisions;
-		// log and continue so we don't lose partial results.
-		log.Printf("pipeline: router errors (non-fatal): %v", err)
-	}
+	var decisions []analyzer.RoutingDecision
+	_ = flow.Span("sentinel.route", nil, func() error {
+		var rerr error
+		decisions, rerr = r.RouteAll(ctx, interpreted)
+		if rerr != nil {
+			// RouteAll collects per-finding errors but still returns decisions;
+			// log and continue so we don't lose partial results.
+			log.Printf("pipeline: router errors (non-fatal): %v", rerr)
+		}
+		flow.Complete("sentinel.route.count", map[string]any{"decisions": len(decisions)})
+		return nil
+	})
 	log.Printf("pipeline: stage 3 complete — %d routing decisions", len(decisions))
 
 	// --- Collect GitHub issue URLs ------------------------------------------

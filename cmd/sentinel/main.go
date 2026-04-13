@@ -13,6 +13,7 @@ import (
 	"github.com/chitinhq/sentinel/internal/analyzer"
 	"github.com/chitinhq/sentinel/internal/config"
 	"github.com/chitinhq/sentinel/internal/db"
+	"github.com/chitinhq/sentinel/internal/flow"
 	"github.com/chitinhq/sentinel/internal/health"
 	"github.com/chitinhq/sentinel/internal/heartbeat"
 	"github.com/chitinhq/sentinel/internal/ingestion"
@@ -268,6 +269,10 @@ func connectRedis(cfg *config.Config) (*redis.Client, error) {
 // runIngest loads config, connects to Neon, fetches execution events from
 // all configured adapters, persists them, and computes health scores.
 func runIngest() error {
+	return flow.Span("sentinel.ingest", nil, runIngestInner)
+}
+
+func runIngestInner() error {
 	ctx := context.Background()
 	cfg, err := config.Load(configPath())
 	if err != nil {
@@ -299,22 +304,27 @@ func runIngest() error {
 
 	// --- GitHub Actions adapter ---
 	if adapterFilter == "" || adapterFilter == "github_actions" {
-		ghAdapter := ingestion.NewGHActionsAdapter(
-			cfg.Ingestion.GitHubActions,
-			"https://api.github.com",
-			cfg.GitHubToken,
-		)
-		cp, err := store.GetCheckpoint(ctx, "github_actions")
-		if err != nil {
-			return fmt.Errorf("get checkpoint: %w", err)
-		}
-		events, err := ghAdapter.Ingest(ctx, cp)
-		if err != nil {
-			log.Printf("sentinel: github_actions ingest error: %v", err)
-		} else {
-			n, err := store.Write(ctx, events)
-			if err != nil {
-				return fmt.Errorf("write github_actions events: %w", err)
+		var writeErr error
+		_ = flow.Span("sentinel.ingest.github_actions", nil, func() error {
+			ghAdapter := ingestion.NewGHActionsAdapter(
+				cfg.Ingestion.GitHubActions,
+				"https://api.github.com",
+				cfg.GitHubToken,
+			)
+			cp, cperr := store.GetCheckpoint(ctx, "github_actions")
+			if cperr != nil {
+				writeErr = fmt.Errorf("get checkpoint: %w", cperr)
+				return cperr
+			}
+			events, ierr := ghAdapter.Ingest(ctx, cp)
+			if ierr != nil {
+				log.Printf("sentinel: github_actions ingest error: %v", ierr)
+				return ierr
+			}
+			n, werr := store.Write(ctx, events)
+			if werr != nil {
+				writeErr = fmt.Errorf("write github_actions events: %w", werr)
+				return werr
 			}
 			if len(events) > 0 {
 				last := events[len(events)-1]
@@ -326,27 +336,41 @@ func runIngest() error {
 			}
 			totalIngested += n
 			log.Printf("sentinel: ingested %d events from github_actions", n)
+			flow.Complete("sentinel.ingest.github_actions.count", map[string]any{"events": n})
+			return nil
+		})
+		if writeErr != nil {
+			return writeErr
 		}
 	}
 
 	// --- Chitin governance adapter ---
 	if adapterFilter == "" || adapterFilter == "chitin" {
 		if len(cfg.Ingestion.ChitinGovernance.Workspaces) > 0 {
-			cgAdapter := ingestion.NewChitinGovernanceAdapter(cfg.Ingestion.ChitinGovernance.Workspaces)
-			cp, _ := store.GetCheckpoint(ctx, "chitin_governance")
-			events, newCp, err := cgAdapter.Ingest(ctx, cp)
-			if err != nil {
-				log.Printf("sentinel: chitin_governance ingest error: %v", err)
-			} else {
-				n, err := store.Write(ctx, events)
-				if err != nil {
-					return fmt.Errorf("write chitin_governance events: %w", err)
+			var writeErr error
+			_ = flow.Span("sentinel.ingest.chitin_governance", nil, func() error {
+				cgAdapter := ingestion.NewChitinGovernanceAdapter(cfg.Ingestion.ChitinGovernance.Workspaces)
+				cp, _ := store.GetCheckpoint(ctx, "chitin_governance")
+				events, newCp, ierr := cgAdapter.Ingest(ctx, cp)
+				if ierr != nil {
+					log.Printf("sentinel: chitin_governance ingest error: %v", ierr)
+					return ierr
+				}
+				n, werr := store.Write(ctx, events)
+				if werr != nil {
+					writeErr = fmt.Errorf("write chitin_governance events: %w", werr)
+					return werr
 				}
 				if newCp != nil {
 					_ = store.SaveCheckpoint(ctx, *newCp)
 				}
 				totalIngested += n
 				log.Printf("sentinel: ingested %d events from chitin_governance", n)
+				flow.Complete("sentinel.ingest.chitin_governance.count", map[string]any{"events": n})
+				return nil
+			})
+			if writeErr != nil {
+				return writeErr
 			}
 		}
 	}
@@ -354,21 +378,30 @@ func runIngest() error {
 	// --- Swarm dispatch adapter ---
 	if adapterFilter == "" || adapterFilter == "swarm" {
 		if cfg.Ingestion.SwarmDispatch.TelemetryPath != "" {
-			sdAdapter := ingestion.NewSwarmDispatchAdapter(cfg.Ingestion.SwarmDispatch.TelemetryPath)
-			cp, _ := store.GetCheckpoint(ctx, "swarm_dispatch")
-			events, newCp, err := sdAdapter.Ingest(ctx, cp)
-			if err != nil {
-				log.Printf("sentinel: swarm_dispatch ingest error: %v", err)
-			} else {
-				n, err := store.Write(ctx, events)
-				if err != nil {
-					return fmt.Errorf("write swarm_dispatch events: %w", err)
+			var writeErr error
+			_ = flow.Span("sentinel.ingest.swarm_dispatch", nil, func() error {
+				sdAdapter := ingestion.NewSwarmDispatchAdapter(cfg.Ingestion.SwarmDispatch.TelemetryPath)
+				cp, _ := store.GetCheckpoint(ctx, "swarm_dispatch")
+				events, newCp, ierr := sdAdapter.Ingest(ctx, cp)
+				if ierr != nil {
+					log.Printf("sentinel: swarm_dispatch ingest error: %v", ierr)
+					return ierr
+				}
+				n, werr := store.Write(ctx, events)
+				if werr != nil {
+					writeErr = fmt.Errorf("write swarm_dispatch events: %w", werr)
+					return werr
 				}
 				if newCp != nil {
 					_ = store.SaveCheckpoint(ctx, *newCp)
 				}
 				totalIngested += n
 				log.Printf("sentinel: ingested %d events from swarm_dispatch", n)
+				flow.Complete("sentinel.ingest.swarm_dispatch.count", map[string]any{"events": n})
+				return nil
+			})
+			if writeErr != nil {
+				return writeErr
 			}
 		}
 	}
@@ -376,27 +409,36 @@ func runIngest() error {
 	// --- Brain state adapter ---
 	if adapterFilter == "" || adapterFilter == "brain" {
 		if cfg.Ingestion.BrainState.Enabled {
-			redisClient, err := connectRedis(cfg)
-			if err != nil {
-				log.Printf("sentinel: redis connect error (brain_state skipped): %v", err)
-			} else {
+			var writeErr error
+			_ = flow.Span("sentinel.ingest.brain_state", nil, func() error {
+				redisClient, rerr := connectRedis(cfg)
+				if rerr != nil {
+					log.Printf("sentinel: redis connect error (brain_state skipped): %v", rerr)
+					return rerr
+				}
 				defer redisClient.Close()
 				bsAdapter := ingestion.NewBrainStateAdapter(redisClient, cfg.Ingestion.BrainState.Interval)
 				cp, _ := store.GetCheckpoint(ctx, "brain_state")
-				events, newCp, err := bsAdapter.Ingest(ctx, cp)
-				if err != nil {
-					log.Printf("sentinel: brain_state ingest error: %v", err)
-				} else {
-					n, err := store.Write(ctx, events)
-					if err != nil {
-						return fmt.Errorf("write brain_state events: %w", err)
-					}
-					if newCp != nil {
-						_ = store.SaveCheckpoint(ctx, *newCp)
-					}
-					totalIngested += n
-					log.Printf("sentinel: ingested %d events from brain_state", n)
+				events, newCp, ierr := bsAdapter.Ingest(ctx, cp)
+				if ierr != nil {
+					log.Printf("sentinel: brain_state ingest error: %v", ierr)
+					return ierr
 				}
+				n, werr := store.Write(ctx, events)
+				if werr != nil {
+					writeErr = fmt.Errorf("write brain_state events: %w", werr)
+					return werr
+				}
+				if newCp != nil {
+					_ = store.SaveCheckpoint(ctx, *newCp)
+				}
+				totalIngested += n
+				log.Printf("sentinel: ingested %d events from brain_state", n)
+				flow.Complete("sentinel.ingest.brain_state.count", map[string]any{"events": n})
+				return nil
+			})
+			if writeErr != nil {
+				return writeErr
 			}
 		}
 	}

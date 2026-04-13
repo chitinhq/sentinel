@@ -1,164 +1,81 @@
 # Sentinel
 
-Telemetry engine for the Chitin governance platform. Ingests GitHub Actions execution logs into Neon (PostgreSQL), runs 7 detection passes for anomalies and drift, enriches findings with LLM interpretation, and routes actionable results as GitHub issues.
+**The telemetry engine that watches your AI agents and tells you when
+something is off.**
 
-## Architecture
+Sentinel reads the execution logs your agents leave behind (GitHub
+Actions runs, Chitin Kernel events), stores them in Postgres, and runs
+seven detection passes to surface patterns you should care about:
+commands that fail too often, policies that deny too much, agents that
+keep hitting the same wall.
 
-```text
-Ingestion
----------
-  [ GitHub Actions API ]
-         |  workflow runs + job steps
-         v
-  [ GHActionsAdapter ]
-         |  ExecutionEvents
-         v
-  [ Neon PostgreSQL ]
+Findings it is confident about become GitHub issues. The rest go into
+a weekly digest.
 
-Pipeline: Analyze
------------------
-  [ Neon PostgreSQL ]
-         |  governance_events + execution_events
-         v
-  [ Analyzer ]
-    |-- Pass 1: Hotspot Ranking
-    |-- Pass 2: False Positive Detection
-    |-- Pass 3: Bypass Pattern Matching
-    |-- Pass 4: Tool Risk Profiling
-    |-- Pass 5: Anomaly Detection
-    |-- Pass 6: Command Failure Rates
-    '-- Pass 7: Sequence Detection
-         |  Findings
-         v
-  [ Interpreter ]
-         |  Anthropic Messages API
-         v
-    [ Claude ]
-         |  InterpretedFindings
-         v
-  [ Router ]
+## What problem does this solve?
 
-Routing
--------
-  [ Router ] -- high confidence + actionable --> GitHub Issues
-  [ Router ] -- medium confidence ------------> Weekly Digest
-  [ Router ] -- all findings ------------------> Qdrant (via Octi Pulpo)
-```
+If you run more than one AI agent, more than one repo, or more than a
+few days of agent work, you start drowning in raw logs. You cannot
+eyeball "is my governance policy too strict?" or "is Claude Code
+getting stuck on the same thing across my fleet?" Sentinel turns that
+raw exhaust into a small number of actionable findings per week.
 
-## Getting Started
+Sentinel is the **senses** of the Chitin Platform — the component
+that notices things.
 
-### Prerequisites
-
-- Go 1.24+
-- Neon PostgreSQL database (set `NEON_DATABASE_URL`)
-- GitHub token (set `GITHUB_TOKEN`) for Actions log ingestion
-- Anthropic API key (set `ANTHROPIC_API_KEY`) for LLM interpretation (optional -- runs in passthrough mode without it)
-
-### Install
+## Try it
 
 ```bash
-git clone https://github.com/chitinhq/sentinel.git
-cd sentinel
+# Build
+git clone https://github.com/chitinhq/sentinel.git && cd sentinel
 go build -o sentinel ./cmd/sentinel/
-```
 
-### Database Setup
-
-Run the migration to create the `execution_events` table:
-
-```bash
-psql "$NEON_DATABASE_URL" -f migrations/001_execution_events.sql
-```
-
-### Configuration
-
-Edit `sentinel.yaml` to configure detection thresholds, ingestion repos, and routing:
-
-```yaml
-ingestion:
-  github_actions:
-    repos:
-      - chitinhq/chitin
-      - chitinhq/sentinel
-    since: 168h
-
-detection:
-  false_positive:
-    min_sample_size: 20
-    deviation_threshold: 2.0
-  bypass:
-    window: 5m
-  anomaly:
-    volume_spike_threshold: 3.0
-
-routing:
-  high_confidence: 0.8
-  medium_confidence: 0.5
-  dedup_similarity: 0.85
-```
-
-### Quick Start
-
-```bash
-# Ingest execution events from GitHub Actions
+# Point it at a Postgres DB (Neon works; so does local docker)
 export NEON_DATABASE_URL="postgres://..."
+psql "$NEON_DATABASE_URL" -f migrations/001_execution_events.sql
+
+# Pull recent GitHub Actions runs into the database
 export GITHUB_TOKEN="ghp_..."
 sentinel ingest
 
-# Run all 7 detection passes, interpret findings, route to GitHub/digest
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Run the seven detection passes; optionally add an LLM for summaries
+export ANTHROPIC_API_KEY="sk-ant-..."   # optional
 sentinel analyze
 
-# Generate a weekly markdown digest
+# Get a markdown digest
 sentinel digest
 ```
 
-## CLI Commands
+Configuration lives in `sentinel.yaml`: which repos to ingest,
+thresholds for each detection pass, and where findings get routed.
 
-| Command | Description |
-|---------|-------------|
-| `sentinel ingest` | Fetch GitHub Actions workflow runs and persist as execution events |
-| `sentinel analyze` | Run 7 detection passes, LLM interpretation, and route findings |
-| `sentinel digest` | Generate a markdown digest of findings with Slack notification |
+## The seven detection passes
 
-There is also a `sentinel-mcp` binary that exposes Sentinel as an MCP tool server for integration with AI coding agents.
+| # | Name            | What it finds                                       |
+|---|-----------------|-----------------------------------------------------|
+| 1 | Hotspot         | The actions your agents take most often             |
+| 2 | False Positive  | Policies whose denial rate drifted from baseline    |
+| 3 | Bypass          | Deny-then-retry-then-allow sequences (workarounds)  |
+| 4 | Tool Risk       | Tools with a high denial-to-total ratio             |
+| 5 | Anomaly         | Volume spikes, sessions with too many denials       |
+| 6 | Command Failure | Commands that fail across repos and sessions        |
+| 7 | Sequence        | Repeating n-gram patterns in failing runs           |
 
-## Detection Passes
+## Where next
 
-| Pass | Name | What It Detects |
-|------|------|-----------------|
-| 1 | Hotspot | Most-used actions ranked by volume |
-| 2 | False Positive | Policies with denial rates deviating from baseline |
-| 3 | Bypass | Deny-retry-allow sequences within a time window |
-| 4 | Tool Risk | Actions with high denial-to-total ratios |
-| 5 | Anomaly | Volume spikes and sessions with excessive denials |
-| 6 | Command Failure | Commands with high failure rates across repos |
-| 7 | Sequence | Recurring n-gram patterns in failing sessions |
+- [Chitin Platform overview](https://github.com/chitinhq/workspace) —
+  how Sentinel fits with the Chitin Kernel (governance), Octi
+  (dispatch), Atlas (memory), and the rest.
+- [`migrations/`](./migrations/) — the Postgres schema.
+- `sentinel-mcp` — a sister binary that exposes Sentinel's findings to
+  AI coding agents via MCP.
 
 ## Development
 
 ```bash
 go build ./...
 go test ./...
-golangci-lint run
 ```
-
-Set `SENTINEL_CONFIG` to point to a custom config path (defaults to `sentinel.yaml` in the working directory). Set `SENTINEL_DIGEST_DIR` to control where digest markdown files are written.
-
-## Part of the Chitin Platform
-
-Sentinel is the telemetry engine. Other repos:
-
-| Repo | Role | Start here if you want to… |
-|------|------|------------------------------|
-| [chitin](https://github.com/chitinhq/chitin) | Governance kernel — policy, invariants, hooks | Gate an agent you already use |
-| [shellforge](https://github.com/chitinhq/shellforge) | Local governed agent runtime | Run a governed agent end-to-end |
-| [octi](https://github.com/chitinhq/octi) | Swarm coordinator — triage, dispatch, routing | Orchestrate multiple agents |
-| **sentinel** (this repo) | Telemetry + detection on agent traces | Analyze how agents fail |
-| [llmint](https://github.com/chitinhq/llmint) | Token-economics middleware for LLM providers | Control LLM cost in Go apps |
-| [atlas](https://github.com/chitinhq/atlas) | Workspace starter kit — knowledge graphs + LLM-compiled wikis | Wrap your repos in AI-powered knowledge tooling |
-
-New to the platform? See [chitin's GETTING_STARTED.md](https://github.com/chitinhq/chitin/blob/main/GETTING_STARTED.md).
 
 ## License
 

@@ -205,30 +205,12 @@ func runAnalyze() error {
 
 	// --- Insight generation (post-analysis) ---
 	if cfg.Insights.Enabled && cfg.AnthropicAPIKey != "" {
-		redisClient, redisErr := connectRedis(cfg)
-		if redisErr != nil {
-			log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
-		}
-
-		neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
-		if neonErr != nil {
-			log.Printf("sentinel: neon connect for insights failed: %v", neonErr)
+		gen, cleanupGen, err := setupInsightGenerator(ctx, cfg)
+		if err != nil {
+			log.Printf("sentinel: insight setup failed: %v", err)
 			return nil
 		}
-		defer neonForInsights.Close()
-
-		gen := insights.NewGenerator(
-			neonForInsights.Pool(),
-			redisClient,
-			insights.GeneratorConfig{
-				APIKey:               cfg.AnthropicAPIKey,
-				Model:                cfg.Interpreter.Model,
-				MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
-				ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
-				VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
-				NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
-			},
-		)
+		defer cleanupGen()
 
 		generated, err := gen.MaybeGenerate(ctx)
 		if err != nil {
@@ -241,13 +223,52 @@ func runAnalyze() error {
 		} else {
 			log.Println("sentinel: no signal for insight generation")
 		}
+	}
 
+	return nil
+}
+
+// setupInsightGenerator wires the shared Redis + Neon + insights.Generator
+// setup used by both runAnalyze (post-analysis insight pass) and
+// runInsightsOnly (cron-driven --insights-only path). Redis is optional:
+// a connect failure logs + returns a nil client so the generator can
+// still run without cross-run rate limiting. Neon failures are fatal.
+// The returned cleanup closes both clients; always defer it.
+func setupInsightGenerator(ctx context.Context, cfg *config.Config) (*insights.Generator, func(), error) {
+	redisClient, redisErr := connectRedis(cfg)
+	if redisErr != nil {
+		log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
+		redisClient = nil
+	}
+
+	neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+	if neonErr != nil {
+		if redisClient != nil {
+			redisClient.Close()
+		}
+		return nil, func() {}, fmt.Errorf("neon connect for insights: %w", neonErr)
+	}
+
+	gen := insights.NewGenerator(
+		neonForInsights.Pool(),
+		redisClient,
+		insights.GeneratorConfig{
+			APIKey:               cfg.AnthropicAPIKey,
+			Model:                cfg.Interpreter.Model,
+			MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
+			ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
+			VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
+			NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
+		},
+	)
+
+	cleanup := func() {
+		neonForInsights.Close()
 		if redisClient != nil {
 			redisClient.Close()
 		}
 	}
-
-	return nil
+	return gen, cleanup, nil
 }
 
 // runInsightsOnly runs only the insight-generation pass, skipping the full
@@ -282,34 +303,11 @@ func runInsightsOnly() error {
 		return nil
 	}
 
-	redisClient, redisErr := connectRedis(cfg)
-	if redisErr != nil {
-		log.Printf("sentinel: redis unavailable for insights: %v", redisErr)
+	gen, cleanup, err := setupInsightGenerator(ctx, cfg)
+	if err != nil {
+		return err
 	}
-	defer func() {
-		if redisClient != nil {
-			redisClient.Close()
-		}
-	}()
-
-	neonForInsights, neonErr := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
-	if neonErr != nil {
-		return fmt.Errorf("neon connect for insights: %w", neonErr)
-	}
-	defer neonForInsights.Close()
-
-	gen := insights.NewGenerator(
-		neonForInsights.Pool(),
-		redisClient,
-		insights.GeneratorConfig{
-			APIKey:               cfg.AnthropicAPIKey,
-			Model:                cfg.Interpreter.Model,
-			MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
-			ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
-			VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
-			NtfyTopic:            getEnvDefault("NTFY_TOPIC", "chitin"),
-		},
-	)
+	defer cleanup()
 
 	generated, err := gen.MaybeGenerate(ctx)
 	if err != nil {

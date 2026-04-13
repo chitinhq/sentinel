@@ -53,6 +53,6 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Optional. Used for insight rate-limit state; generator tolerates
           # absence and just won't rate-limit across runs.
-          REDIS_URL: ${{ secrets.REDIS_URL }}
+          SENTINEL_REDIS_URL: ${{ secrets.REDIS_URL }}
           NTFY_TOPIC: chitin
         run: ./bin/sentinel analyze --insights-only

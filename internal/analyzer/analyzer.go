@@ -166,6 +166,21 @@ func (a *Analyzer) Run(ctx context.Context) ([]Finding, error) {
 			})
 		}
 
+		// Pass 8: Unacked dispatch — flow.X.started with no matching
+		// .completed/.failed within TTL. Catches dispatch-to-dead-target.
+		_ = flow.Span("sentinel.analyze.pass.unacked", nil, func() error {
+			events, qerr := a.store.QueryEvents(ctx, since, now)
+			if qerr != nil {
+				log.Printf("sentinel: pass 8 (unacked): %v", qerr)
+				return qerr
+			}
+			unacked := DetectUnacked(events, a.cfg.Detection.Unacked.TTL)
+			log.Printf("sentinel: pass 8 (unacked) found %d findings", len(unacked))
+			all = append(all, unacked...)
+			flow.Complete("sentinel.analyze.pass.unacked.findings", map[string]any{"findings": len(unacked)})
+			return nil
+		})
+
 		log.Printf("sentinel: total findings: %d", len(all))
 		return nil
 	})

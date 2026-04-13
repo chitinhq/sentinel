@@ -25,11 +25,16 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat>")
+		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows>")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
+	case "flows":
+		if err := runFlows(); err != nil {
+			fmt.Fprintf(os.Stderr, "flows failed: %v\n", err)
+			os.Exit(1)
+		}
 	case "analyze":
 		if err := runAnalyze(); err != nil {
 			fmt.Fprintf(os.Stderr, "analyze failed: %v\n", err)

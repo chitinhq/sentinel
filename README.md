@@ -61,6 +61,58 @@ thresholds for each detection pass, and where findings get routed.
 | 6 | Command Failure | Commands that fail across repos and sessions        |
 | 7 | Sequence        | Repeating n-gram patterns in failing runs           |
 
+## Scheduling
+
+Sentinel is a batch engine — `sentinel ingest`, `sentinel analyze`, and
+`sentinel digest` must be invoked on a schedule for the platform to have live
+telemetry. This repo ships **systemd `--user` timer units** as a first-class
+deliverable (see [`deploy/systemd/`](deploy/systemd/)):
+
+| Unit | Schedule | What it does |
+|------|----------|--------------|
+| `sentinel-digest.timer`  | every 15 min | renders markdown digest to `$SENTINEL_DIGEST_DIR` |
+| `sentinel-analyze.timer` | every 1 hour | runs 7 detection passes + routes findings |
+
+Both timers use `Persistent=true`, so missed runs (laptop asleep, reboots)
+are caught up on resume.
+
+### Install
+
+```bash
+# 1. Put secrets in a file the units can read (not checked into git):
+mkdir -p ~/.config/sentinel
+cat > ~/.config/sentinel/env <<'EOF'
+NEON_DATABASE_URL=postgres://...
+GITHUB_TOKEN=ghp_...
+ANTHROPIC_API_KEY=sk-ant-...
+EOF
+chmod 600 ~/.config/sentinel/env
+
+# 2. Build the binary + install the timers:
+bash scripts/install-timers.sh
+
+# 3. Verify:
+systemctl --user list-timers | grep sentinel
+```
+
+Digests are written to `~/.local/share/sentinel/digests/` by default
+(`SENTINEL_DIGEST_DIR` in the unit files — override there if you want a
+different path). Unit logs live in the user journal:
+
+```bash
+journalctl --user -u sentinel-digest.service -f
+journalctl --user -u sentinel-analyze.service -f
+```
+
+To uninstall: `bash scripts/install-timers.sh --uninstall`.
+
+For non-Linux hosts or fleet deployment, use the equivalent cron entries:
+
+```cron
+*/15 * * * *  cd /path/to/sentinel && SENTINEL_DIGEST_DIR=$HOME/.local/share/sentinel/digests ./bin/sentinel digest
+0    * * * *  cd /path/to/sentinel && ./bin/sentinel analyze
+```
+
 ## Where next
 
 - [Chitin Platform overview](https://github.com/chitinhq/workspace) —

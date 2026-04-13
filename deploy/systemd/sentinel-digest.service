@@ -1,0 +1,22 @@
+[Unit]
+Description=Sentinel digest — render markdown digest of findings
+Documentation=https://github.com/chitinhq/sentinel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Load secrets (NEON_DATABASE_URL, GITHUB_TOKEN, ANTHROPIC_API_KEY, etc.).
+# Create %h/.config/sentinel/env with KEY=value lines. Missing file is tolerated.
+EnvironmentFile=-%h/.config/sentinel/env
+Environment=SENTINEL_DIGEST_DIR=%h/.local/share/sentinel/digests
+Environment=SENTINEL_CONFIG=%h/workspace/sentinel-heartbeat/sentinel.yaml
+WorkingDirectory=%h/workspace/sentinel-heartbeat
+ExecStartPre=/bin/mkdir -p %h/.local/share/sentinel/digests
+ExecStart=%h/workspace/sentinel-heartbeat/bin/sentinel digest
+# Don't let a single failure cascade — timer will retry next tick.
+SuccessExitStatus=0
+Nice=10
+
+[Install]
+WantedBy=default.target

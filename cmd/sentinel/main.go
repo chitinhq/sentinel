@@ -26,7 +26,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows>")
+		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows|drivers>")
 		os.Exit(1)
 	}
 
@@ -34,6 +34,11 @@ func main() {
 	case "flows":
 		if err := runFlows(); err != nil {
 			fmt.Fprintf(os.Stderr, "flows failed: %v\n", err)
+			os.Exit(1)
+		}
+	case "drivers":
+		if err := runDrivers(); err != nil {
+			fmt.Fprintf(os.Stderr, "drivers failed: %v\n", err)
 			os.Exit(1)
 		}
 	case "analyze":

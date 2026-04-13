@@ -31,6 +31,11 @@ type chitinEvent struct {
 	Explanation map[string]interface{} `json:"explanation,omitempty"`
 	TrustScore  *int                   `json:"trust_score,omitempty"`
 	TrustLevel  string                 `json:"trust_level,omitempty"`
+	// Fields carries structured payload from flow.Emit / heartbeat callers
+	// (e.g. {"host":"ubuntu-...","uptime_seconds":3600,"model":"qwen..."}).
+	// Flattened into metadata so rollups like `sentinel drivers` can query
+	// metadata->>'host' directly.
+	Fields map[string]interface{} `json:"fields,omitempty"`
 }
 
 // GovernanceEventRow captures everything we need to persist a single
@@ -262,6 +267,14 @@ func chitinToGovernance(ce chitinEvent, tenantID string) GovernanceEventRow {
 	}
 	if ce.Path != "" {
 		metadata["path"] = ce.Path
+	}
+	// Flatten ce.Fields into metadata so callers like `sentinel drivers`
+	// can read metadata->>'host', metadata->>'uptime_seconds', etc.
+	// Existing keys (tool, action, etc) take precedence over fields.
+	for k, v := range ce.Fields {
+		if _, exists := metadata[k]; !exists {
+			metadata[k] = v
+		}
 	}
 
 	return GovernanceEventRow{

@@ -60,10 +60,14 @@ ingestion:
     # Configure workspace paths where chitin-governed repos are checked out.
     # Use absolute paths or set WORKSPACE env var (e.g. ${WORKSPACE}/chitin).
     workspaces:
+      - ${WORKSPACE}
       - ${WORKSPACE}/chitin
       - ${WORKSPACE}/octi
       - ${WORKSPACE}/sentinel
       - ${WORKSPACE}/shellforge
+      - ${WORKSPACE}/clawta
+      - ${WORKSPACE}/atlas
+      - ${WORKSPACE}/llmint
   chitin_runtime:
     # Chitin's runtime layer (session/gate/soul events). Distinct
     # from chitin_governance: this is per-user state, not per-repo.

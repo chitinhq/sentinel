@@ -28,6 +28,9 @@ func runFlows() error {
 	}
 	defer pool.Close()
 
+	// Flow events are identified by the 'flow.' action prefix. Using action
+	// rather than event_source is durable across the ingester's current
+	// hardcoding of event_source='agent' (tracked as a separate issue).
 	rows, err := pool.Query(ctx, `
 		SELECT
 		  action AS flow,
@@ -36,7 +39,7 @@ func runFlows() error {
 		  COUNT(*) FILTER (WHERE outcome = 'allow' AND timestamp > NOW() - INTERVAL '24 hours') AS ok_24h,
 		  COUNT(*) FILTER (WHERE outcome = 'deny'  AND timestamp > NOW() - INTERVAL '24 hours') AS fail_24h
 		FROM governance_events
-		WHERE event_source = 'flow'
+		WHERE action LIKE 'flow.%'
 		GROUP BY action
 		ORDER BY action
 	`)
@@ -79,7 +82,7 @@ func formatTs(t *time.Time) string {
 	if t == nil {
 		return "—"
 	}
-	return t.UTC().Format("2026-01-02 15:04Z")
+	return t.UTC().Format("2006-01-02 15:04Z")
 }
 
 // verdict collapses a flow's state into a single label a human can scan.

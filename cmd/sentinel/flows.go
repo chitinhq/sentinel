@@ -28,9 +28,10 @@ func runFlows() error {
 	}
 	defer pool.Close()
 
-	// Flow events are identified by the 'flow.' action prefix. Using action
-	// rather than event_source is durable across the ingester's current
-	// hardcoding of event_source='agent' (tracked as a separate issue).
+	// Flow events are identified by event_source. The ingester now maps
+	// chitin ce.Source correctly (issue #41), so event_source is the
+	// meaningful, indexed column to filter on. 'heartbeat' is included so
+	// driver heartbeats show up alongside flow.Emit entries.
 	rows, err := pool.Query(ctx, `
 		SELECT
 		  action AS flow,
@@ -39,7 +40,7 @@ func runFlows() error {
 		  COUNT(*) FILTER (WHERE outcome = 'allow' AND timestamp > NOW() - INTERVAL '24 hours') AS ok_24h,
 		  COUNT(*) FILTER (WHERE outcome = 'deny'  AND timestamp > NOW() - INTERVAL '24 hours') AS fail_24h
 		FROM governance_events
-		WHERE action LIKE 'flow.%'
+		WHERE event_source IN ('flow', 'heartbeat')
 		GROUP BY action
 		ORDER BY action
 	`)

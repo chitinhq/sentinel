@@ -81,6 +81,13 @@ func (a *Analyzer) Run(ctx context.Context) ([]Finding, error) {
 	log.Printf("sentinel: pass 4 (tool risk) found %d findings", len(toolRisks))
 	all = append(all, toolRisks...)
 
+	// Pass 4b: MCP usage profiling — partitions action counts on the mcp__
+	// prefix so we can see which MCP tools are actually being leaned on.
+	// Uses the same input as pass 1 (hotspot), scoped to MCP-only events.
+	mcpUsage := ProfileMCPUsage(counts)
+	log.Printf("sentinel: pass 4b (mcp usage) found %d findings", len(mcpUsage))
+	all = append(all, mcpUsage...)
+
 	// Pass 5: Anomaly detection
 	volumes, err := a.store.QueryHourlyVolumes(ctx, since)
 	if err != nil {

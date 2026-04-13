@@ -14,6 +14,7 @@ import (
 	"github.com/chitinhq/sentinel/internal/config"
 	"github.com/chitinhq/sentinel/internal/db"
 	"github.com/chitinhq/sentinel/internal/health"
+	"github.com/chitinhq/sentinel/internal/heartbeat"
 	"github.com/chitinhq/sentinel/internal/ingestion"
 	"github.com/chitinhq/sentinel/internal/insights"
 	"github.com/chitinhq/sentinel/internal/interpreter"
@@ -24,7 +25,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|flows>")
+		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows>")
 		os.Exit(1)
 	}
 
@@ -54,6 +55,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "health failed: %v\n", err)
 			os.Exit(1)
 		}
+	case "heartbeat":
+		code, err := runHeartbeat()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "heartbeat failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(code)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
@@ -511,6 +519,43 @@ func runHealth() error {
 		)
 	}
 	return nil
+}
+
+// runHeartbeat counts governance_events in the last 24h and pages via ntfy
+// when volume is below the configured floor. Returns the exit code: 0 if the
+// heartbeat is green, 2 if paging (so CI / cron can alert on non-zero exit).
+func runHeartbeat() (int, error) {
+	ctx := context.Background()
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return 1, fmt.Errorf("load config: %w", err)
+	}
+	if cfg.NeonDatabaseURL == "" {
+		return 1, fmt.Errorf("NEON_DATABASE_URL is required")
+	}
+	neon, err := db.NewNeonClient(ctx, cfg.NeonDatabaseURL)
+	if err != nil {
+		return 1, fmt.Errorf("connect neon: %w", err)
+	}
+	defer neon.Close()
+
+	counter := &heartbeat.PoolCounter{Pool: neon.Pool()}
+	notifier := heartbeat.NewNtfyNotifier(cfg.Heartbeat.NtfyTopic)
+
+	dec, err := heartbeat.Run(ctx, counter, notifier, cfg.Heartbeat.MinEvents24h)
+	if err != nil {
+		// A counter error means we can't tell if the pipeline is alive.
+		// Treat that as a hard failure: log and exit nonzero rather than
+		// pretending green. Notifier-only failures still surface here but
+		// we prefer a loud exit over a silent "OK".
+		return 1, fmt.Errorf("heartbeat run: %w", err)
+	}
+	if dec.Paging {
+		log.Printf("sentinel heartbeat PAGE: %d events in last 24h (threshold %d)", dec.Count, dec.Threshold)
+		return 2, nil
+	}
+	log.Printf("sentinel heartbeat OK: %d events in last 24h (threshold %d)", dec.Count, dec.Threshold)
+	return 0, nil
 }
 
 // passthroughInterpreter is used when ANTHROPIC_API_KEY is not set.

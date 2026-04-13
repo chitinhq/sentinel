@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,7 +51,7 @@ type PoolCounter struct {
 func (p *PoolCounter) CountLast24h(ctx context.Context) (int, error) {
 	var count int
 	err := p.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM governance_events WHERE timestamp > NOW() - INTERVAL '24 hours'`,
+		`SELECT COUNT(*) FROM governance_events WHERE timestamp >= NOW() - INTERVAL '24 hours'`,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count governance_events: %w", err)
@@ -72,8 +73,8 @@ func (n *NtfyNotifier) Notify(ctx context.Context, title, body, priority string)
 	if n.Topic == "" {
 		return fmt.Errorf("ntfy topic empty")
 	}
-	url := fmt.Sprintf("https://ntfy.sh/%s", n.Topic)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBufferString(body))
+	endpoint := fmt.Sprintf("https://ntfy.sh/%s", url.PathEscape(n.Topic))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBufferString(body))
 	if err != nil {
 		return err
 	}

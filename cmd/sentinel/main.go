@@ -539,8 +539,11 @@ func runHeartbeat() (int, error) {
 
 	dec, err := heartbeat.Run(ctx, counter, notifier, cfg.Heartbeat.MinEvents24h)
 	if err != nil {
-		// If the notifier failed but we still have a decision, log and continue.
-		log.Printf("sentinel heartbeat: %v", err)
+		// A counter error means we can't tell if the pipeline is alive.
+		// Treat that as a hard failure: log and exit nonzero rather than
+		// pretending green. Notifier-only failures still surface here but
+		// we prefer a loud exit over a silent "OK".
+		return 1, fmt.Errorf("heartbeat run: %w", err)
 	}
 	if dec.Paging {
 		log.Printf("sentinel heartbeat PAGE: %d events in last 24h (threshold %d)", dec.Count, dec.Threshold)

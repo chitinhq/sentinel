@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -175,9 +176,19 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	// Expand ${VAR}/$VAR against process env before parsing. Fixes the
+	// long-standing trap where sentinel.yaml used placeholders like
+	// ${WORKSPACE}/octi and the loader passed the literal string to
+	// ingesters, which then silently skipped every path.
+	expanded := os.ExpandEnv(string(data))
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	if err := validateNoUnresolvedPlaceholders(&cfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	// Environment variable overrides
@@ -204,4 +215,25 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// validateNoUnresolvedPlaceholders walks the config paths that historically
+// used ${VAR} placeholders and rejects any literal "${" survivor. Empty
+// strings are allowed (the ingester will warn and skip); a lingering "${"
+// indicates the env var was missing at load time, which is the silent-break
+// trap we want to catch loudly.
+func validateNoUnresolvedPlaceholders(cfg *Config) error {
+	var bad []string
+	for _, ws := range cfg.Ingestion.ChitinGovernance.Workspaces {
+		if strings.Contains(ws, "${") || strings.Contains(ws, "$(") {
+			bad = append(bad, fmt.Sprintf("ingestion.chitin_governance.workspaces: %q", ws))
+		}
+	}
+	if p := cfg.Ingestion.SwarmDispatch.TelemetryPath; strings.Contains(p, "${") || strings.Contains(p, "$(") {
+		bad = append(bad, fmt.Sprintf("ingestion.swarm_dispatch.telemetry_path: %q", p))
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("unresolved env placeholders (set the env var or use an absolute path): %s", strings.Join(bad, "; "))
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -82,7 +83,14 @@ func (a *ChitinGovernanceAdapter) Ingest(ctx context.Context, cp *Checkpoint) ([
 		eventsPath := filepath.Join(ws, ".chitin", "events.jsonl")
 		events, newOffset, err := a.readFile(eventsPath, offsets[ws])
 		if err != nil {
-			// Skip missing or unreadable files — log and continue.
+			// Missing/unreadable is common (empty workspace, permissions).
+			// Log at warn so it's visible — silent skips hid the broken
+			// placeholder config trap for weeks.
+			if os.IsNotExist(err) {
+				log.Printf("sentinel: chitin_governance: no events.jsonl at %s (workspace not yet emitting)", eventsPath)
+			} else {
+				log.Printf("sentinel: chitin_governance: skip %s: %v", eventsPath, err)
+			}
 			continue
 		}
 		all = append(all, events...)

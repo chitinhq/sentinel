@@ -4,8 +4,29 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
+
+// fakeGovernanceWriter captures every row the adapter emits so tests can
+// assert on the final shape without needing a live Postgres.
+type fakeGovernanceWriter struct {
+	mu   sync.Mutex
+	rows []GovernanceEventRow
+	err  error
+}
+
+func (f *fakeGovernanceWriter) InsertGovernance(_ context.Context, row GovernanceEventRow) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.rows = append(f.rows, row)
+	return nil
+}
+
+const testTenantID = "00000000-0000-0000-0000-000000000001"
 
 func TestChitinGovernanceAdapter_Ingest(t *testing.T) {
 	dir := t.TempDir()
@@ -18,50 +39,54 @@ func TestChitinGovernanceAdapter_Ingest(t *testing.T) {
 `
 	os.WriteFile(eventsFile, []byte(data), 0644)
 
-	adapter := NewChitinGovernanceAdapter([]string{dir})
-	events, cp, err := adapter.Ingest(context.Background(), nil)
+	w := &fakeGovernanceWriter{}
+	adapter := NewChitinGovernanceAdapter([]string{dir}, testTenantID, w)
+	n, cp, err := adapter.Ingest(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
+	if n != 2 {
+		t.Fatalf("expected 2 rows inserted, got %d", n)
+	}
+	if len(w.rows) != 2 {
+		t.Fatalf("expected 2 rows captured, got %d", len(w.rows))
 	}
 
-	// First event: deny.
-	ev0 := events[0]
-	if ev0.Source != SourceChitinGovernance {
-		t.Errorf("expected source chitin_governance, got %s", ev0.Source)
+	r0 := w.rows[0]
+	if r0.TenantID != testTenantID {
+		t.Errorf("expected tenant_id propagated, got %q", r0.TenantID)
 	}
-	if !ev0.HasError {
-		t.Error("expected deny event to have has_error=true")
+	if r0.Outcome != "deny" {
+		t.Errorf("expected outcome=deny, got %q", r0.Outcome)
 	}
-	if ev0.ExitCode == nil || *ev0.ExitCode != 2 {
-		t.Errorf("expected exit_code=2 for deny, got %v", ev0.ExitCode)
+	if r0.RiskLevel != "medium" {
+		t.Errorf("expected policy-deny → medium risk, got %q", r0.RiskLevel)
 	}
-	if ev0.Command != "Bash:exec" {
-		t.Errorf("expected command 'Bash:exec', got %q", ev0.Command)
+	if r0.Action != "Bash" {
+		t.Errorf("expected action=Bash, got %q", r0.Action)
 	}
-	if ev0.Tags["outcome"] != "deny" {
-		t.Errorf("expected tag outcome=deny, got %q", ev0.Tags["outcome"])
+	if r0.Resource != "git push origin main" {
+		t.Errorf("expected resource fallback to command, got %q", r0.Resource)
 	}
-	if ev0.Tags["reason"] != "Direct push to protected branch" {
-		t.Errorf("unexpected reason tag: %q", ev0.Tags["reason"])
+	if r0.EventType != "tool_call" {
+		t.Errorf("expected event_type=tool_call, got %q", r0.EventType)
 	}
-	if ev0.AgentID != "claude-code" {
-		t.Errorf("expected agent_id claude-code, got %q", ev0.AgentID)
+	if r0.AgentID != "claude-code" {
+		t.Errorf("expected agent_id=claude-code, got %q", r0.AgentID)
+	}
+	if r0.Metadata["reason"] != "Direct push to protected branch" {
+		t.Errorf("expected reason in metadata, got %v", r0.Metadata["reason"])
 	}
 
-	// Second event: allow.
-	ev1 := events[1]
-	if ev1.HasError {
-		t.Error("expected allow event to have has_error=false")
+	r1 := w.rows[1]
+	if r1.Outcome != "allow" {
+		t.Errorf("expected outcome=allow, got %q", r1.Outcome)
 	}
-	if ev1.ExitCode == nil || *ev1.ExitCode != 0 {
-		t.Errorf("expected exit_code=0 for allow, got %v", ev1.ExitCode)
+	if r1.RiskLevel != "low" {
+		t.Errorf("expected allow → low risk, got %q", r1.RiskLevel)
 	}
-	if ev1.Command != "Read:read" {
-		t.Errorf("expected command 'Read:read', got %q", ev1.Command)
+	if r1.Resource != "src/main.go" {
+		t.Errorf("expected resource=path, got %q", r1.Resource)
 	}
 
 	// Checkpoint should be set.
@@ -72,21 +97,21 @@ func TestChitinGovernanceAdapter_Ingest(t *testing.T) {
 		t.Errorf("expected adapter chitin_governance, got %q", cp.Adapter)
 	}
 
-	// Second ingest with checkpoint should return 0 events.
-	events2, _, err := adapter.Ingest(context.Background(), cp)
+	// Second ingest with checkpoint should return 0 rows.
+	n2, _, err := adapter.Ingest(context.Background(), cp)
 	if err != nil {
 		t.Fatalf("second Ingest: %v", err)
 	}
-	if len(events2) != 0 {
-		t.Errorf("expected 0 events on re-ingest, got %d", len(events2))
+	if n2 != 0 {
+		t.Errorf("expected 0 rows on re-ingest, got %d", n2)
 	}
 }
 
 // TestChitinGovernanceAdapter_TrustTelemetry verifies that trust_score /
-// trust_level flow from chitin events into execution_events.tags. The
+// trust_level flow from chitin events into governance_events.metadata. The
 // zero-score case is important: chitin emits trust_score as *int precisely
 // so "score = 0" (lowest-trust agent) survives omitempty serialization,
-// and Sentinel must not drop that signal when forwarding to the tags map.
+// and Sentinel must not drop that signal when forwarding to metadata.
 func TestChitinGovernanceAdapter_TrustTelemetry(t *testing.T) {
 	dir := t.TempDir()
 	chitinDir := filepath.Join(dir, ".chitin")
@@ -99,36 +124,36 @@ func TestChitinGovernanceAdapter_TrustTelemetry(t *testing.T) {
 `
 	os.WriteFile(eventsFile, []byte(data), 0644)
 
-	adapter := NewChitinGovernanceAdapter([]string{dir})
-	events, _, err := adapter.Ingest(context.Background(), nil)
-	if err != nil {
+	w := &fakeGovernanceWriter{}
+	adapter := NewChitinGovernanceAdapter([]string{dir}, testTenantID, w)
+	if _, _, err := adapter.Ingest(context.Background(), nil); err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(events))
+	if len(w.rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(w.rows))
 	}
 
-	if got := events[0].Tags["trust_score"]; got != "500" {
-		t.Errorf("baseline trust_score tag = %q, want %q", got, "500")
+	if got := w.rows[0].Metadata["trust_score"]; got != 500 {
+		t.Errorf("baseline trust_score metadata = %v, want 500", got)
 	}
-	if got := events[0].Tags["trust_level"]; got != "baseline" {
-		t.Errorf("baseline trust_level tag = %q, want %q", got, "baseline")
+	if got := w.rows[0].Metadata["trust_level"]; got != "baseline" {
+		t.Errorf("baseline trust_level metadata = %v, want baseline", got)
 	}
 
 	// The keystone assertion: score=0 must survive.
-	if got := events[1].Tags["trust_score"]; got != "0" {
-		t.Errorf("restricted trust_score tag = %q, want %q (score=0 must be preserved)", got, "0")
+	if got := w.rows[1].Metadata["trust_score"]; got != 0 {
+		t.Errorf("restricted trust_score metadata = %v, want 0 (score=0 must be preserved)", got)
 	}
-	if got := events[1].Tags["trust_level"]; got != "restricted" {
-		t.Errorf("restricted trust_level tag = %q, want %q", got, "restricted")
+	if got := w.rows[1].Metadata["trust_level"]; got != "restricted" {
+		t.Errorf("restricted trust_level metadata = %v, want restricted", got)
 	}
 
-	// Event without trust fields must not gain empty tags.
-	if _, ok := events[2].Tags["trust_score"]; ok {
-		t.Errorf("untagged event should not have trust_score tag, got %q", events[2].Tags["trust_score"])
+	// Event without trust fields must not gain empty metadata entries.
+	if _, ok := w.rows[2].Metadata["trust_score"]; ok {
+		t.Errorf("untagged event should not have trust_score metadata")
 	}
-	if _, ok := events[2].Tags["trust_level"]; ok {
-		t.Errorf("untagged event should not have trust_level tag, got %q", events[2].Tags["trust_level"])
+	if _, ok := w.rows[2].Metadata["trust_level"]; ok {
+		t.Errorf("untagged event should not have trust_level metadata")
 	}
 }
 
@@ -146,13 +171,19 @@ func TestChitinGovernanceAdapter_IncrementalRead(t *testing.T) {
 `
 	os.WriteFile(eventsFile, []byte(initial), 0644)
 
-	adapter := NewChitinGovernanceAdapter([]string{dir})
-	events1, cp1, err := adapter.Ingest(context.Background(), nil)
+	w := &fakeGovernanceWriter{}
+	adapter := NewChitinGovernanceAdapter([]string{dir}, testTenantID, w)
+	n1, cp1, err := adapter.Ingest(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("first Ingest: %v", err)
 	}
-	if len(events1) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(events1))
+	if n1 != 3 {
+		t.Fatalf("expected 3 rows, got %d", n1)
+	}
+
+	// Invariant-sourced deny should escalate to high risk.
+	if w.rows[2].RiskLevel != "high" {
+		t.Errorf("expected invariant deny → high risk, got %q", w.rows[2].RiskLevel)
 	}
 
 	// Append 2 more events.
@@ -162,15 +193,18 @@ func TestChitinGovernanceAdapter_IncrementalRead(t *testing.T) {
 `)
 	f.Close()
 
-	// Second ingest should return only the 2 new events.
-	events2, _, err := adapter.Ingest(context.Background(), cp1)
+	// Second ingest should return only the 2 new rows.
+	n2, _, err := adapter.Ingest(context.Background(), cp1)
 	if err != nil {
 		t.Fatalf("second Ingest: %v", err)
 	}
-	if len(events2) != 2 {
-		t.Errorf("expected 2 new events, got %d", len(events2))
+	if n2 != 2 {
+		t.Errorf("expected 2 new rows, got %d", n2)
 	}
-	if len(events2) > 0 && events2[0].AgentID != "copilot" {
-		t.Errorf("expected copilot agent, got %q", events2[0].AgentID)
+	if len(w.rows) != 5 {
+		t.Fatalf("expected 5 total rows captured, got %d", len(w.rows))
+	}
+	if w.rows[3].AgentID != "copilot" {
+		t.Errorf("expected copilot agent on row 4, got %q", w.rows[3].AgentID)
 	}
 }

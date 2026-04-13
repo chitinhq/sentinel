@@ -325,23 +325,27 @@ func runIngest() error {
 	}
 
 	// --- Chitin governance adapter ---
+	// Writes directly to governance_events (same table as sentinel-mcp's
+	// IngestFile). Previously this path wrote execution_events, which the
+	// analyzer never read. See sentinel#31.
 	if adapterFilter == "" || adapterFilter == "chitin" {
 		if len(cfg.Ingestion.ChitinGovernance.Workspaces) > 0 {
-			cgAdapter := ingestion.NewChitinGovernanceAdapter(cfg.Ingestion.ChitinGovernance.Workspaces)
+			writer := &ingestion.PgxGovernanceWriter{Pool: neon.Pool()}
+			cgAdapter := ingestion.NewChitinGovernanceAdapter(
+				cfg.Ingestion.ChitinGovernance.Workspaces,
+				cfg.Tenant.ID,
+				writer,
+			)
 			cp, _ := store.GetCheckpoint(ctx, "chitin_governance")
-			events, newCp, err := cgAdapter.Ingest(ctx, cp)
+			n, newCp, err := cgAdapter.Ingest(ctx, cp)
 			if err != nil {
 				log.Printf("sentinel: chitin_governance ingest error: %v", err)
 			} else {
-				n, err := store.Write(ctx, events)
-				if err != nil {
-					return fmt.Errorf("write chitin_governance events: %w", err)
-				}
 				if newCp != nil {
 					_ = store.SaveCheckpoint(ctx, *newCp)
 				}
 				totalIngested += n
-				log.Printf("sentinel: ingested %d events from chitin_governance", n)
+				log.Printf("sentinel: ingested %d events from chitin_governance (tenant=%s)", n, cfg.Tenant.ID)
 			}
 		}
 	}

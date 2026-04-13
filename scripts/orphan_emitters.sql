@@ -73,12 +73,12 @@ LEFT JOIN governance_events e
 GROUP BY p.label ORDER BY hits DESC;
 
 \echo
-\echo --- 4. hunt_session — does hunt XP actually persist? ---
+\echo --- 4. quest_session — does hunt XP actually persist? ---
 SELECT count(*)                                    AS total_sessions,
        count(*) FILTER (WHERE xp_awarded > 0)      AS sessions_with_xp,
        max(started_at)                             AS last_started,
        max(ended_at)                               AS last_ended
-FROM hunt_session;
+FROM quest_session;
 
 \echo
 \echo --- 5. reader check: insights referencing orphan terms ---
@@ -99,7 +99,7 @@ SELECT conname,
        confrelid::regclass AS to_table
 FROM pg_constraint
 WHERE contype = 'f'
-  AND confrelid::regclass::text IN ('execution_events','hunt_session','governance_events');
+  AND confrelid::regclass::text IN ('execution_events','quest_session','governance_events');
 
 \echo
 \echo --- 8. sample of orphan governance rows (last 25) ---

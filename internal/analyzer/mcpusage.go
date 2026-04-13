@@ -27,6 +27,11 @@ func mcpServer(action string) string {
 	if i <= 0 {
 		return ""
 	}
+	// Tool segment (everything after the server's trailing "__") must be
+	// non-empty — "mcp__octi__" is not a valid MCP tool invocation.
+	if i+2 >= len(rest) {
+		return ""
+	}
 	return rest[:i]
 }
 
@@ -85,7 +90,11 @@ func ProfileMCPUsage(counts []db.ActionCount) []Finding {
 	// agents actually leaning on" before "what's failing" — failures are
 	// covered by the existing hotspot pass.
 	sort.Slice(findings, func(i, j int) bool {
-		return findings[i].Metrics.Count > findings[j].Metrics.Count
+		if findings[i].Metrics.Count != findings[j].Metrics.Count {
+			return findings[i].Metrics.Count > findings[j].Metrics.Count
+		}
+		// Tie-break on PolicyID so output is deterministic across runs.
+		return findings[i].PolicyID < findings[j].PolicyID
 	})
 
 	return findings

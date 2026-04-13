@@ -16,6 +16,8 @@ func TestMCPServer(t *testing.T) {
 		{"mcp__", ""},
 		{"mcp__bad", ""},            // no trailing __<tool>
 		{"mcp____tool", ""},         // empty server segment
+		{"mcp__octi__", ""},         // empty tool segment
+		{"mcp__octi", ""},           // no tool separator
 		{"something_else", ""},
 	}
 	for _, c := range cases {

@@ -273,10 +273,34 @@ func chitinToGovernance(ce chitinEvent, tenantID string) GovernanceEventRow {
 		Resource:    resource,
 		Outcome:     ce.Outcome,
 		RiskLevel:   riskLevel,
-		EventSource: "agent",
+		EventSource: mapChitinSourceToEventSource(ce.Source),
 		DriverType:  ce.Agent,
 		Metadata:    metadata,
 		Timestamp:   ce.Ts,
+	}
+}
+
+// mapChitinSourceToEventSource maps the ce.Source field from a chitin hook
+// event to the governance_events.event_source column. See issue #41.
+//
+//	"flow"                                    -> "flow"       (from flow.Emit)
+//	"heartbeat"                               -> "heartbeat"  (from chitin driver heartbeat)
+//	"policy"|"invariant"|"fail-open"|
+//	  "fail-closed"                           -> "agent"      (governance decisions)
+//	"octi"|"atlas"                            -> "mcp_server" (from mcptrace)
+//	anything else                             -> "agent"      (safe default)
+func mapChitinSourceToEventSource(src string) string {
+	switch src {
+	case "flow":
+		return "flow"
+	case "heartbeat":
+		return "heartbeat"
+	case "policy", "invariant", "fail-open", "fail-closed":
+		return "agent"
+	case "octi", "atlas":
+		return "mcp_server"
+	default:
+		return "agent"
 	}
 }
 

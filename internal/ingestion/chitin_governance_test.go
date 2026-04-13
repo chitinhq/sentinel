@@ -208,3 +208,59 @@ func TestChitinGovernanceAdapter_IncrementalRead(t *testing.T) {
 		t.Errorf("expected copilot agent on row 4, got %q", w.rows[3].AgentID)
 	}
 }
+
+// TestMapChitinSourceToEventSource locks in the ce.Source -> event_source
+// mapping documented on issue #41. A regression here will silently re-break
+// downstream filters (e.g. `sentinel flows` uses event_source IN (...)).
+func TestMapChitinSourceToEventSource(t *testing.T) {
+	cases := []struct {
+		source string
+		want   string
+	}{
+		{"flow", "flow"},
+		{"heartbeat", "heartbeat"},
+		{"policy", "agent"},
+		{"invariant", "agent"},
+		{"fail-open", "agent"},
+		{"fail-closed", "agent"},
+		{"octi", "mcp_server"},
+		{"atlas", "mcp_server"},
+		{"", "agent"},
+		{"something-unknown", "agent"},
+	}
+	for _, tc := range cases {
+		got := mapChitinSourceToEventSource(tc.source)
+		if got != tc.want {
+			t.Errorf("mapChitinSourceToEventSource(%q) = %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}
+
+// TestChitinToGovernance_EventSourceMapping asserts the full row builder
+// carries ce.Source through to the row's EventSource column.
+func TestChitinToGovernance_EventSourceMapping(t *testing.T) {
+	cases := map[string]string{
+		"flow":        "flow",
+		"heartbeat":   "heartbeat",
+		"policy":      "agent",
+		"invariant":   "agent",
+		"fail-open":   "agent",
+		"fail-closed": "agent",
+		"octi":        "mcp_server",
+		"atlas":       "mcp_server",
+		"mystery":     "agent",
+	}
+	for src, want := range cases {
+		ce := chitinEvent{
+			SID:     "sess-x",
+			Agent:   "claude-code",
+			Tool:    "Bash",
+			Outcome: "allow",
+			Source:  src,
+		}
+		row := chitinToGovernance(ce, testTenantID)
+		if row.EventSource != want {
+			t.Errorf("source %q: EventSource = %q, want %q", src, row.EventSource, want)
+		}
+	}
+}

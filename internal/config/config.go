@@ -22,6 +22,7 @@ type Config struct {
 	Health          HealthConfig          `yaml:"health"`
 	Insights        InsightsConfig        `yaml:"insights"`
 	Heartbeat       HeartbeatConfig       `yaml:"heartbeat"`
+	Tenant          TenantConfig          `yaml:"tenant"`
 
 	// Environment variable overrides (not in YAML)
 	RedisURL        string `yaml:"-"`
@@ -141,6 +142,18 @@ type HeartbeatConfig struct {
 	NtfyTopic    string `yaml:"ntfy_topic"`
 }
 
+// TenantConfig identifies which tenants.id row every ingested governance
+// event is stamped with. Required by the governance_events.tenant_id FK.
+// Override via CHITIN_TENANT_ID env var; defaults to the seeded "chitin"
+// tenant (00000000-0000-0000-0000-000000000001).
+type TenantConfig struct {
+	ID string `yaml:"id"`
+}
+
+// DefaultChitinTenantID is the UUID of the seeded "chitin" tenants row.
+// Keep in sync with the Neon tenants table seed.
+const DefaultChitinTenantID = "00000000-0000-0000-0000-000000000001"
+
 type ChitinGovernanceConfig struct {
 	Workspaces []string `yaml:"workspaces"`
 }
@@ -204,6 +217,15 @@ func Load(path string) (*Config, error) {
 	cfg.OctiPulpoURL = os.Getenv("OCTI_PULPO_URL")
 	if cfg.OctiPulpoURL == "" {
 		cfg.OctiPulpoURL = "http://localhost:8080"
+	}
+
+	// Tenant override + default. The governance_events.tenant_id column is
+	// NOT NULL with an FK to tenants.id, so we must always stamp a value.
+	if v := os.Getenv("CHITIN_TENANT_ID"); v != "" {
+		cfg.Tenant.ID = v
+	}
+	if cfg.Tenant.ID == "" {
+		cfg.Tenant.ID = DefaultChitinTenantID
 	}
 
 	// Heartbeat defaults — see HeartbeatConfig doc.

@@ -88,6 +88,12 @@ health:
   brain_health_threshold_skip: 30
   brain_health_threshold_limit: 60
 
+# Tenant scope for governance_events. tenant_id is required by the FK;
+# override with CHITIN_TENANT_ID env var if running against a non-default
+# Neon tenant. Default below is the seeded "chitin" tenant.
+tenant:
+  id: "00000000-0000-0000-0000-000000000001"
+
 execution_passes:
   command_failure:
     min_occurrences: 10

@@ -345,33 +345,32 @@ func runIngestInner() error {
 	}
 
 	// --- Chitin governance adapter ---
+	// Writes directly to governance_events (same table as sentinel-mcp's
+	// IngestFile). Previously this path wrote execution_events, which the
+	// analyzer never read. See sentinel#31.
 	if adapterFilter == "" || adapterFilter == "chitin" {
 		if len(cfg.Ingestion.ChitinGovernance.Workspaces) > 0 {
-			var writeErr error
 			_ = flow.Span("sentinel.ingest.chitin_governance", nil, func() error {
-				cgAdapter := ingestion.NewChitinGovernanceAdapter(cfg.Ingestion.ChitinGovernance.Workspaces)
+				writer := &ingestion.PgxGovernanceWriter{Pool: neon.Pool()}
+				cgAdapter := ingestion.NewChitinGovernanceAdapter(
+					cfg.Ingestion.ChitinGovernance.Workspaces,
+					cfg.Tenant.ID,
+					writer,
+				)
 				cp, _ := store.GetCheckpoint(ctx, "chitin_governance")
-				events, newCp, ierr := cgAdapter.Ingest(ctx, cp)
-				if ierr != nil {
-					log.Printf("sentinel: chitin_governance ingest error: %v", ierr)
-					return ierr
-				}
-				n, werr := store.Write(ctx, events)
-				if werr != nil {
-					writeErr = fmt.Errorf("write chitin_governance events: %w", werr)
-					return werr
+				n, newCp, err := cgAdapter.Ingest(ctx, cp)
+				if err != nil {
+					log.Printf("sentinel: chitin_governance ingest error: %v", err)
+					return err
 				}
 				if newCp != nil {
 					_ = store.SaveCheckpoint(ctx, *newCp)
 				}
 				totalIngested += n
-				log.Printf("sentinel: ingested %d events from chitin_governance", n)
+				log.Printf("sentinel: ingested %d events from chitin_governance (tenant=%s)", n, cfg.Tenant.ID)
 				flow.Complete("sentinel.ingest.chitin_governance.count", map[string]any{"events": n})
 				return nil
 			})
-			if writeErr != nil {
-				return writeErr
-			}
 		}
 	}
 

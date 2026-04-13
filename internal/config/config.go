@@ -20,6 +20,7 @@ type Config struct {
 	ExecutionPasses ExecutionPassesConfig `yaml:"execution_passes"`
 	Health          HealthConfig          `yaml:"health"`
 	Insights        InsightsConfig        `yaml:"insights"`
+	Heartbeat       HeartbeatConfig       `yaml:"heartbeat"`
 
 	// Environment variable overrides (not in YAML)
 	RedisURL        string `yaml:"-"`
@@ -131,6 +132,14 @@ type InsightsConfig struct {
 	ScoreDeltaThreshold  int     `yaml:"score_delta_threshold"`
 }
 
+// HeartbeatConfig controls the daily volume floor alarm.
+// When governance_events count in the last 24h falls below MinEvents24h,
+// `sentinel heartbeat` pages via ntfy. Defaults: 10 events, topic "ganglia".
+type HeartbeatConfig struct {
+	MinEvents24h int    `yaml:"min_events_24h"`
+	NtfyTopic    string `yaml:"ntfy_topic"`
+}
+
 type ChitinGovernanceConfig struct {
 	Workspaces []string `yaml:"workspaces"`
 }
@@ -184,6 +193,14 @@ func Load(path string) (*Config, error) {
 	cfg.OctiPulpoURL = os.Getenv("OCTI_PULPO_URL")
 	if cfg.OctiPulpoURL == "" {
 		cfg.OctiPulpoURL = "http://localhost:8080"
+	}
+
+	// Heartbeat defaults — see HeartbeatConfig doc.
+	if cfg.Heartbeat.MinEvents24h == 0 {
+		cfg.Heartbeat.MinEvents24h = 10
+	}
+	if cfg.Heartbeat.NtfyTopic == "" {
+		cfg.Heartbeat.NtfyTopic = "ganglia"
 	}
 
 	return &cfg, nil

@@ -10,6 +10,7 @@ const (
 	CategoryPattern        InsightCategory = "pattern"
 	CategoryRecommendation InsightCategory = "recommendation"
 	CategoryAnomaly        InsightCategory = "anomaly"
+	CategoryGovernance     InsightCategory = "governance"
 )
 
 // InsightSeverity classifies urgency.

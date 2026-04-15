@@ -50,7 +50,6 @@ jobs:
           # Optional. When unset, `analyze --insights-only` logs + exits 0
           # (see runInsightsOnly in cmd/sentinel/main.go). Slice 2 will
           # replace this with an octi-dispatch path.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Optional. Used for insight rate-limit state; generator tolerates
           # absence and just won't rate-limit across runs.
           SENTINEL_REDIS_URL: ${{ secrets.REDIS_URL }}

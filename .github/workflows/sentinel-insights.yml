@@ -2,10 +2,10 @@
 # execution_events / governance_events already in Neon. Uses the
 # `analyze --insights-only` path so it skips ingest + detection + mining.
 #
-# Cost posture: slice 2 (feat/insights-via-octi-dispatch) makes the insight
-# generator dispatch through octi (no Anthropic API key). Until that lands
-# the job will log + exit 0 if ANTHROPIC_API_KEY is absent, so the cron
-# stays green either way.
+# Cost posture: slice 2 redirected the insight LLM call from pay-per-token
+# Anthropic to the flat-rate Ollama Cloud Pro subscription
+# (OpenAI-compatible /v1/chat/completions). When OLLAMA_CLOUD_API_KEY is
+# absent the job logs + exits 0 so the cron stays green either way.
 name: Sentinel Insights (hourly)
 
 on:
@@ -44,12 +44,14 @@ jobs:
 
       - name: Run insights generation
         env:
-          # TODO: confirm secret name matches other sentinel workflows once
-          # an ingest cron lands. Assumed present on the repo.
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-          # Optional. When unset, `analyze --insights-only` logs + exits 0
-          # (see runInsightsOnly in cmd/sentinel/main.go). Slice 2 will
-          # replace this with an octi-dispatch path.
+          # Ollama Cloud Pro API key. Insights generator routes through
+          # https://ollama.com/v1/chat/completions when this is present.
+          # Absence -> runInsightsOnly logs + exits 0 (see cmd/sentinel/main.go).
+          OLLAMA_CLOUD_API_KEY: ${{ secrets.OLLAMA_CLOUD_API_KEY }}
+          # Force the HTTP API transport (vs. the octi CLI dispatch path,
+          # which isn't available inside the GH Actions runner).
+          SENTINEL_INSIGHTS_USE_API: "true"
           # Optional. Used for insight rate-limit state; generator tolerates
           # absence and just won't rate-limit across runs.
           SENTINEL_REDIS_URL: ${{ secrets.REDIS_URL }}

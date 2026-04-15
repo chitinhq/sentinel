@@ -249,12 +249,16 @@ func setupInsightGenerator(ctx context.Context, cfg *config.Config) (*insights.G
 		return nil, func() {}, fmt.Errorf("neon connect for insights: %w", neonErr)
 	}
 
+	// Insights use the Ollama Cloud default model (glm-5.1:cloud) unless
+	// SENTINEL_INSIGHTS_MODEL is set. cfg.Interpreter.Model is reserved for
+	// the analyze-pass interpreter and is Anthropic-branded by default, so
+	// we intentionally don't forward it to the insights generator.
 	gen := insights.NewGenerator(
 		neonForInsights.Pool(),
 		redisClient,
 		insights.GeneratorConfig{
 			APIKey:               cfg.AnthropicAPIKey,
-			Model:                cfg.Interpreter.Model,
+			Model:                os.Getenv("SENTINEL_INSIGHTS_MODEL"),
 			MaxFrequencyMinutes:  cfg.Insights.MaxFrequencyMinutes,
 			ScoreDeltaThreshold:  cfg.Insights.ScoreDeltaThreshold,
 			VolumeSpikeThreshold: cfg.Insights.VolumeSpikeThreshold,
@@ -295,13 +299,23 @@ func runInsightsOnly() error {
 	if cfg.NeonDatabaseURL == "" {
 		return fmt.Errorf("NEON_DATABASE_URL is required")
 	}
-	if cfg.AnthropicAPIKey == "" {
-		// TODO(slice-2): once feat/insights-via-octi-dispatch lands, the
-		// generator will dispatch via octi (no key required). Until then,
-		// log + exit 0 so the hourly cron stays green.
-		log.Println("sentinel: ANTHROPIC_API_KEY not set — insights dispatch path (slice 2) not yet wired; skipping")
+	// Insights now call Ollama Cloud (OpenAI-compatible chat-completions)
+	// instead of Anthropic. The key lives in OLLAMA_CLOUD_API_KEY. Graceful
+	// skip when absent keeps the hourly cron green if the secret is not
+	// yet provisioned in a given environment.
+	ollamaKey := os.Getenv("OLLAMA_CLOUD_API_KEY")
+	if ollamaKey == "" {
+		log.Println("sentinel: OLLAMA_CLOUD_API_KEY not set — insights generator has no LLM transport; skipping")
 		return nil
 	}
+	// Route insights through the HTTP API path (Ollama Cloud). Without
+	// this the generator would try to shell out to the octi CLI, which
+	// isn't available in the GH Actions runner.
+	if os.Getenv("SENTINEL_INSIGHTS_USE_API") == "" {
+		_ = os.Setenv("SENTINEL_INSIGHTS_USE_API", "true")
+	}
+	// Hand the Ollama key to the generator via the existing APIKey slot.
+	cfg.AnthropicAPIKey = ollamaKey
 
 	gen, cleanup, err := setupInsightGenerator(ctx, cfg)
 	if err != nil {

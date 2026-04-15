@@ -123,15 +123,20 @@ func TestGatherGovernanceDenies_QueryError(t *testing.T) {
 }
 
 // TestDispatchPromptToCLI_FallbackToAPI verifies that setting
-// SENTINEL_INSIGHTS_USE_API=true routes callLLM through the Anthropic
-// HTTP path instead of shelling out to octi. We point the generator at
-// a test HTTP server and confirm it receives the request.
+// SENTINEL_INSIGHTS_USE_API=true routes callLLM through the Ollama
+// Cloud HTTP path (OpenAI-compatible chat-completions) instead of
+// shelling out to octi. We point the generator at a test HTTP server
+// and confirm it receives the request at the chat-completions
+// endpoint with a Bearer auth header.
 func TestDispatchPromptToCLI_FallbackToAPI(t *testing.T) {
 	hits := 0
+	var sawPath, sawAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
+		sawPath = r.URL.Path
+		sawAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"[]"}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"[]"}}]}`))
 	}))
 	defer srv.Close()
 
@@ -140,7 +145,7 @@ func TestDispatchPromptToCLI_FallbackToAPI(t *testing.T) {
 	g := &Generator{
 		apiURL:     srv.URL,
 		apiKey:     "test-key",
-		model:      "claude-sonnet-4-6",
+		model:      "glm-5.1:cloud",
 		httpClient: srv.Client(),
 	}
 
@@ -152,7 +157,13 @@ func TestDispatchPromptToCLI_FallbackToAPI(t *testing.T) {
 		t.Fatalf("expected '[]' from API mock, got %q", out)
 	}
 	if hits != 1 {
-		t.Fatalf("expected 1 HTTP hit to fake Anthropic, got %d", hits)
+		t.Fatalf("expected 1 HTTP hit to fake Ollama Cloud, got %d", hits)
+	}
+	if sawPath != "/v1/chat/completions" {
+		t.Fatalf("expected POST to /v1/chat/completions, got %q", sawPath)
+	}
+	if sawAuth != "Bearer test-key" {
+		t.Fatalf("expected Bearer auth header, got %q", sawAuth)
 	}
 
 	// With the env var unset (or false), callLLM routes to octi CLI,

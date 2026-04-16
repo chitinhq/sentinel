@@ -50,7 +50,7 @@ func emitSelfHeartbeat(subcommand string) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows|drivers|souls>")
+		fmt.Fprintln(os.Stderr, "usage: sentinel <analyze|digest|ingest|health|heartbeat|flows|drivers|souls|patrol>")
 		os.Exit(1)
 	}
 
@@ -108,6 +108,11 @@ func main() {
 	case "health":
 		if err := runHealth(); err != nil {
 			fmt.Fprintf(os.Stderr, "health failed: %v\n", err)
+			os.Exit(1)
+		}
+	case "patrol":
+		if err := runPatrol(); err != nil {
+			fmt.Fprintf(os.Stderr, "patrol failed: %v\n", err)
 			os.Exit(1)
 		}
 	case "heartbeat":

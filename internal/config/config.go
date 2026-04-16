@@ -23,6 +23,7 @@ type Config struct {
 	Insights        InsightsConfig        `yaml:"insights"`
 	Heartbeat       HeartbeatConfig       `yaml:"heartbeat"`
 	Tenant          TenantConfig          `yaml:"tenant"`
+	Circuit         CircuitConfig         `yaml:"circuit"`
 
 	// Environment variable overrides (not in YAML)
 	RedisURL        string `yaml:"-"`
@@ -185,6 +186,27 @@ type SwarmDispatchConfig struct {
 type BrainStateConfig struct {
 	Enabled  bool          `yaml:"enabled"`
 	Interval time.Duration `yaml:"interval"`
+}
+
+// CircuitConfig configures the four-signal swarm circuit breaker (see
+// internal/circuit). All thresholds default to values mined from the
+// 2026-04-16 quorum telemetry window; override per-field in sentinel.yaml.
+type CircuitConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	MaxRetriesPerTask int           `yaml:"max_retries_per_task"`
+	RetryWindow       time.Duration `yaml:"retry_window"`
+
+	MaxActiveAgents    int           `yaml:"max_active_agents"`
+	MaxSessionDuration time.Duration `yaml:"max_session_duration"`
+	MaxTokenBurnRate   float64       `yaml:"max_token_burn_rate"`
+
+	MaxOpenPRsPerRepo int           `yaml:"max_open_prs_per_repo"`
+	MaxCIFailureRate  float64       `yaml:"max_ci_failure_rate"`
+	CIWindow          time.Duration `yaml:"ci_window"`
+
+	MinRequiredFieldCoverage float64       `yaml:"min_required_field_coverage"`
+	TelemetryWindow          time.Duration `yaml:"telemetry_window"`
 }
 
 type ExecutionPassesConfig struct {

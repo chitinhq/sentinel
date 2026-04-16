@@ -109,6 +109,28 @@ health:
 tenant:
   id: "00000000-0000-0000-0000-000000000001"
 
+# Four-signal swarm circuit breaker. Orthogonal patrol — NOT an inline
+# pipeline gate. When any signal trips, emits flow_failed circuit.<signal>
+# so Octi's dispatcher can pause dispatching until `chitin circuit reset`
+# (or MCP mcp__octi__circuit_reset) closes it again.
+#
+# Thresholds below are the starting values curie mined from the
+# 2026-04-16-0030 quorum window (12,026 events, 3,546 sessions). Per-repo
+# health matters because fleet=0.23% but clawta alone is 17% — a
+# fleet-averaged bar would never catch the one repo actually bleeding.
+circuit:
+  enabled: true
+  max_retries_per_task: 3
+  retry_window: 1h
+  max_active_agents: 8
+  max_session_duration: 2h
+  max_token_burn_rate: 100000  # tokens/minute
+  max_open_prs_per_repo: 15
+  max_ci_failure_rate: 0.15
+  ci_window: 1h
+  min_required_field_coverage: 0.95
+  telemetry_window: 15m
+
 execution_passes:
   command_failure:
     min_occurrences: 10

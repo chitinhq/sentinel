@@ -12,8 +12,11 @@ import (
 // new transport.
 type FlowEmitter struct{}
 
-// Emit writes a flow_failed event on the "circuit.<signal>" name so
-// the analyzer's existing per-flow health view picks it up automatically.
-func (FlowEmitter) Emit(_ context.Context, signal string, detail map[string]any) {
-	flow.Fail("circuit."+signal, detail)
+// Emit writes a flow_failed event so the analyzer's existing per-flow
+// health view picks it up automatically. The Breaker passes the fully-
+// qualified event name ("circuit.<signal>") — FlowEmitter is a thin
+// pass-through and does NOT prefix again (doing so produced
+// "circuit.circuit.<signal>" in an earlier draft).
+func (FlowEmitter) Emit(_ context.Context, name string, detail map[string]any) {
+	flow.Fail(name, detail)
 }

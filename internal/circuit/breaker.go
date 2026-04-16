@@ -2,9 +2,9 @@
 //
 // The breaker is NOT an inline blocking gate on the SDLC pipeline. It runs
 // as a periodic patrol, reads four independent signal sources, and — when
-// any one trips its threshold — emits a `circuit.tripped` flow event so
-// downstream dispatchers (Octi) can pause dispatching until an operator
-// issues a reset.
+// any one trips its threshold — emits a `circuit.<signal>` flow event
+// (e.g. `circuit.retry_storm`) so downstream dispatchers (Octi) can
+// pause dispatching until an operator issues a reset.
 //
 // The four signals (collapsed from quorum 2026-04-16-0030, davinci +
 // shannon agreeing that retry/resource/health/telemetry are all threshold-
@@ -28,11 +28,14 @@ package circuit
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
 
-// Signal names are stable strings emitted on circuit.tripped events.
+// Signal names are stable strings appended to "circuit." for the emitted
+// flow event name (e.g. SignalRetryStorm → "circuit.retry_storm") and
+// also carried as the "signal" field in the event detail.
 const (
 	SignalRetryStorm        = "retry_storm"
 	SignalResourceBurn      = "resource_burn"
@@ -150,15 +153,28 @@ func New(t Thresholds, src SignalSource, e Emitter) *Breaker {
 }
 
 // State reports whether the breaker is currently open (tripped). When
-// open, the returned Trip describes which signal caused the trip.
+// open, the returned Trip describes which signal caused the trip. The
+// returned Trip is a deep copy — callers may mutate it freely.
 func (b *Breaker) State() (open bool, trip *Trip) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.lastTrip == nil {
-		return b.open, nil
+	return b.open, cloneTrip(b.lastTrip)
+}
+
+// cloneTrip returns a deep copy of t so internal lastTrip state is never
+// shared with callers (Sample is a map and would otherwise alias).
+func cloneTrip(t *Trip) *Trip {
+	if t == nil {
+		return nil
 	}
-	t := *b.lastTrip
-	return b.open, &t
+	cp := *t
+	if t.Sample != nil {
+		cp.Sample = make(map[string]any, len(t.Sample))
+		for k, v := range t.Sample {
+			cp.Sample[k] = v
+		}
+	}
+	return &cp
 }
 
 // Reset closes the breaker and clears the last trip. Idempotent.
@@ -180,9 +196,9 @@ func (b *Breaker) Reset() {
 func (b *Breaker) Check(ctx context.Context) (*Trip, error) {
 	b.mu.Lock()
 	if b.open {
-		t := *b.lastTrip
+		t := cloneTrip(b.lastTrip)
 		b.mu.Unlock()
-		return &t, nil
+		return t, nil
 	}
 	b.mu.Unlock()
 
@@ -198,8 +214,27 @@ func (b *Breaker) Check(ctx context.Context) (*Trip, error) {
 			return nil, err
 		}
 		if trip != nil {
-			b.trip(ctx, trip)
-			return trip, nil
+			// Re-acquire the lock and compare-and-set: another goroutine
+			// may have raced to trip() between our initial open-check and
+			// here. If they won, return their trip and don't double-emit.
+			b.mu.Lock()
+			if b.open {
+				t := cloneTrip(b.lastTrip)
+				b.mu.Unlock()
+				return t, nil
+			}
+			b.open = true
+			b.lastTrip = trip
+			b.mu.Unlock()
+			if b.emitter != nil {
+				b.emitter.Emit(ctx, "circuit."+trip.Signal, map[string]any{
+					"signal":    trip.Signal,
+					"threshold": trip.Threshold,
+					"sample":    trip.Sample,
+					"at":        trip.At.Format(time.RFC3339Nano),
+				})
+			}
+			return cloneTrip(trip), nil
 		}
 	}
 	return nil, nil
@@ -215,15 +250,32 @@ func (b *Breaker) CheckRetryStorm(ctx context.Context) (*Trip, error) {
 	if err != nil {
 		return nil, fmt.Errorf("retry counts: %w", err)
 	}
+	// Pick the worst offender deterministically (highest count, then
+	// lexicographically smallest task_id as tiebreaker). Map iteration
+	// order is randomized in Go, so this avoids flapping samples across
+	// runs and makes investigations reproducible.
+	var (
+		worstTask  string
+		worstCount int
+		found      bool
+	)
 	for task, n := range counts {
-		if n > b.thresholds.MaxRetriesPerTask {
-			return &Trip{
-				Signal:    SignalRetryStorm,
-				Threshold: fmt.Sprintf("retries>%d within %s", b.thresholds.MaxRetriesPerTask, b.thresholds.RetryWindow),
-				Sample:    map[string]any{"task_id": task, "retry_count": n},
-				At:        time.Now().UTC(),
-			}, nil
+		if n <= b.thresholds.MaxRetriesPerTask {
+			continue
 		}
+		if !found || n > worstCount || (n == worstCount && task < worstTask) {
+			worstTask = task
+			worstCount = n
+			found = true
+		}
+	}
+	if found {
+		return &Trip{
+			Signal:    SignalRetryStorm,
+			Threshold: fmt.Sprintf("retries>%d within %s", b.thresholds.MaxRetriesPerTask, b.thresholds.RetryWindow),
+			Sample:    map[string]any{"task_id": worstTask, "retry_count": worstCount},
+			At:        time.Now().UTC(),
+		}, nil
 	}
 	return nil, nil
 }
@@ -280,7 +332,17 @@ func (b *Breaker) CheckRepoHealth(ctx context.Context) (*Trip, error) {
 	if err != nil {
 		return nil, fmt.Errorf("repo health: %w", err)
 	}
-	for repo, s := range stats {
+	// Iterate repos in sorted order so the trip sample is deterministic
+	// across runs even when multiple repos are over threshold. Open-PR
+	// breach takes priority over CI-failure breach, matching the field
+	// ordering in Thresholds.
+	repos := make([]string, 0, len(stats))
+	for repo := range stats {
+		repos = append(repos, repo)
+	}
+	sort.Strings(repos)
+	for _, repo := range repos {
+		s := stats[repo]
 		if t.MaxOpenPRsPerRepo > 0 && s.OpenPRs > t.MaxOpenPRsPerRepo {
 			return &Trip{
 				Signal:    SignalRepoHealth,
@@ -329,19 +391,6 @@ func (b *Breaker) CheckTelemetryIntegrity(ctx context.Context) (*Trip, error) {
 	return nil, nil
 }
 
-// trip marks the breaker open and emits the circuit.tripped event.
-// Caller must not hold b.mu.
-func (b *Breaker) trip(ctx context.Context, t *Trip) {
-	b.mu.Lock()
-	b.open = true
-	b.lastTrip = t
-	b.mu.Unlock()
-	if b.emitter != nil {
-		b.emitter.Emit(ctx, "circuit.tripped", map[string]any{
-			"signal":    t.Signal,
-			"threshold": t.Threshold,
-			"sample":    t.Sample,
-			"at":        t.At.Format(time.RFC3339Nano),
-		})
-	}
-}
+// (trip helper removed — Check now performs the compare-and-set + emit
+// inline so the open-check, state mutation, and emit decision share one
+// critical section. See Check() above.)

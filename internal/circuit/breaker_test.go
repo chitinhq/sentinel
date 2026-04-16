@@ -115,8 +115,11 @@ func TestRetryStormTrips(t *testing.T) {
 	if !open {
 		t.Fatalf("expected breaker open after trip")
 	}
-	if len(rec.events) != 1 || rec.events[0]["_event"] != "circuit.tripped" {
-		t.Fatalf("expected 1 circuit.tripped event, got %+v", rec.events)
+	if len(rec.events) != 1 || rec.events[0]["_event"] != "circuit.retry_storm" {
+		t.Fatalf("expected 1 circuit.retry_storm event, got %+v", rec.events)
+	}
+	if rec.events[0]["signal"] != SignalRetryStorm {
+		t.Fatalf("expected signal field = retry_storm, got %+v", rec.events[0]["signal"])
 	}
 }
 

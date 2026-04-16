@@ -130,6 +130,13 @@ circuit:
   ci_window: 1h
   min_required_field_coverage: 0.95
   telemetry_window: 15m
+  # Patrol cadence — Check fires immediately at startup, then every
+  # patrol_interval. 60s is curie's recommendation: tight enough that a
+  # retry storm trips within ~2 windows, loose enough to keep Neon load
+  # negligible (4 queries × 1/min = 240/hour).
+  patrol_interval: 60s
+  # Empty list = use ingestion.github_actions.repos at startup.
+  repos: []
 
 execution_passes:
   command_failure:

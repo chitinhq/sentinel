@@ -207,6 +207,14 @@ type CircuitConfig struct {
 
 	MinRequiredFieldCoverage float64       `yaml:"min_required_field_coverage"`
 	TelemetryWindow          time.Duration `yaml:"telemetry_window"`
+
+	// PatrolInterval is how often the patrol goroutine calls Breaker.Check.
+	// Defaults to 60s when zero. Surfaced under circuit.patrol_interval.
+	PatrolInterval time.Duration `yaml:"patrol_interval"`
+
+	// Repos is the per-repo health watchlist for the repo_health signal.
+	// When empty, the patrol falls back to ingestion.github_actions.repos.
+	Repos []string `yaml:"repos"`
 }
 
 type ExecutionPassesConfig struct {

@@ -74,9 +74,12 @@ ingestion:
     # Empty state_dir disables the adapter.
     state_dir: ${HOME}/.local/state/chitin
     share_dir: ${HOME}/.local/share/chitin
-  swarm_dispatch:
-    # Path to Octi swarm telemetry events file.
-    telemetry_path: ${HOME}/.local/share/octi/telemetry/swarm-events.jsonl
+  # swarm_dispatch adapter RETIRED 2026-04-15: dispatches flow via
+  # governance_events (140+ flow.swarm.dispatch rows/4h) — jsonl file is stale
+  #   swarm_dispatch:
+  #     # Path to Octi swarm telemetry events file.
+  #     telemetry_path: ${HOME}/.local/share/octi/telemetry/swarm-events.jsonl
+
   brain_state:
     enabled: true
     interval: 5m
